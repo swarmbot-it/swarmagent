@@ -1,0 +1,29 @@
+[package]
+name = "swarmagent"
+version = "0.1.0"
+edition = "2021"
+description = "Lightweight Swarmbot Docker agent (Rust)"
+license = "MIT"
+repository = "https://github.com/dcniko/swarmbot"
+rust-version = "1.86"
+
+[dependencies]
+anyhow = "1"
+axum = { version = "0.7", default-features = false, features = ["json", "tokio", "http1", "query", "macros"] }
+bollard = "0.18"
+bytes = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sysinfo = "0.32"
+tokio = { version = "1", default-features = false, features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["env-filter", "fmt", "std"] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
