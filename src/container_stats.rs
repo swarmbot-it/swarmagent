@@ -1,8 +1,15 @@
-//! Container stats parsing (Docker CLI–style CPU / memory helpers).
+//! Container stats parsing — CPU, memory, network I/O, block I/O, PIDs.
+//!
+//! All formulas match the Docker CLI `docker stats` implementation so that
+//! the values displayed in Swarmboty are consistent with what operators see
+//! on the command line.
 
 use bollard::container::{CPUStats, MemoryStats, MemoryStatsStats, Stats};
 use chrono::{DateTime, Utc};
 
+// ── CPU ───────────────────────────────────────────────────────────────────────
+
+/// Linux/macOS CPU % — identical to the formula used by the Docker CLI.
 #[inline]
 pub fn calculate_cpu_percent_unix(previous_cpu: u64, previous_system: u64, cur: &CPUStats) -> f64 {
     let cpu_delta = cur.cpu_usage.total_usage.saturating_sub(previous_cpu) as f64;
@@ -26,7 +33,7 @@ pub fn calculate_cpu_percent_unix(previous_cpu: u64, previous_system: u64, cur: 
     }
 }
 
-/// Windows CPU % (matches the Docker CLI stats formula).
+/// Windows CPU % — matches the Docker CLI stats formula.
 #[inline]
 pub fn calculate_cpu_percent_windows(
     read_preread_ns: u64,
@@ -42,6 +49,8 @@ pub fn calculate_cpu_percent_windows(
         0.0
     }
 }
+
+// ── Memory ────────────────────────────────────────────────────────────────────
 
 #[inline]
 pub fn calculate_memory_usage_unix_no_cache(usage: u64, cache: u64) -> f64 {
@@ -59,12 +68,70 @@ pub fn calculate_memory_percent_unix_no_cache(limit: f64, used_no_cache: f64) ->
 
 fn cache_bytes(mem: &MemoryStats) -> u64 {
     match &mem.stats {
+        // cgroup v1: `cache` field holds the page-cache size.
         Some(MemoryStatsStats::V1(v)) => v.cache,
-        // cgroup v2: approximate page cache component similarly to Docker heuristics.
+        // cgroup v2: `inactive_file` is the closest equivalent used by the CLI.
         Some(MemoryStatsStats::V2(v)) => v.inactive_file,
         None => 0,
     }
 }
+
+// ── Network I/O ───────────────────────────────────────────────────────────────
+
+/// Sum of rx_bytes / tx_bytes across all network interfaces reported in the
+/// stats snapshot.  Returns `(rx_bytes, tx_bytes)`.
+///
+/// Available from Docker API v1.21+ for Linux containers; empty on Windows
+/// (Windows network counters are not exposed via this endpoint).
+pub fn network_io(stats: &Stats) -> (u64, u64) {
+    let mut rx = 0u64;
+    let mut tx = 0u64;
+    if let Some(nets) = &stats.networks {
+        for iface in nets.values() {
+            rx = rx.saturating_add(iface.rx_bytes);
+            tx = tx.saturating_add(iface.tx_bytes);
+        }
+    }
+    (rx, tx)
+}
+
+// ── Block I/O ─────────────────────────────────────────────────────────────────
+
+/// Aggregate block device read / write bytes from `blkio_stats`.
+/// Returns `(read_bytes, write_bytes)`.
+///
+/// Works for both cgroup v1 (io_service_bytes_recursive) and cgroup v2
+/// (same field, different kernel accounting).  On Windows, blkio_stats is
+/// not populated and both values will be zero.
+pub fn block_io(stats: &Stats) -> (u64, u64) {
+    let mut read = 0u64;
+    let mut write = 0u64;
+    if let Some(entries) = stats
+        .blkio_stats
+        .io_service_bytes_recursive
+        .as_deref()
+    {
+        for entry in entries {
+            match entry.op.to_ascii_lowercase().as_str() {
+                "read" => read = read.saturating_add(entry.value),
+                "write" => write = write.saturating_add(entry.value),
+                _ => {}
+            }
+        }
+    }
+    (read, write)
+}
+
+// ── PIDs ──────────────────────────────────────────────────────────────────────
+
+/// Current PID count inside the container (`pids_stats.current`).
+/// Returns 0 when not available (Windows or kernel without pids cgroup).
+#[inline]
+pub fn pid_count(stats: &Stats) -> u64 {
+    stats.pids_stats.current.unwrap_or(0)
+}
+
+// ── Composite builder ─────────────────────────────────────────────────────────
 
 fn parse_ts(s: &str) -> Option<DateTime<Utc>> {
     DateTime::parse_from_rfc3339(s.trim())
@@ -107,6 +174,9 @@ pub fn container_status_from_stats(
         (cpu, memory, memory_limit, memory_percent)
     };
 
+    let (network_rx_bytes, network_tx_bytes) = network_io(stats);
+    let (block_read_bytes, block_write_bytes) = block_io(stats);
+
     crate::models::ContainerStatus {
         name: stats.name.clone(),
         id: stats.id.clone(),
@@ -114,12 +184,19 @@ pub fn container_status_from_stats(
         memory,
         memory_limit,
         memory_percentage: memory_percent,
+        network_rx_bytes,
+        network_tx_bytes,
+        block_read_bytes,
+        block_write_bytes,
+        pids: pid_count(stats),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bollard::container::{BlkioStats, BlkioStatsEntry, NetworkStats, PidsStats};
+    use std::collections::HashMap;
 
     #[test]
     fn memory_no_cache() {
@@ -130,8 +207,12 @@ mod tests {
     }
 
     #[test]
+    fn memory_percent_zero_when_limit_zero() {
+        assert_eq!(calculate_memory_percent_unix_no_cache(0.0, 100.0), 0.0);
+    }
+
+    #[test]
     fn windows_cpu_percent() {
-        // 1_000_000 ns raw delta -> poss = 10_000 * 4 = 40_000 with num_procs=4
         let p = calculate_cpu_percent_windows(1_000_000, 4, 25_000);
         assert!((p - 62.5).abs() < 0.01);
     }
@@ -181,8 +262,117 @@ mod tests {
         assert_eq!(calculate_cpu_percent_unix(0, 1000, &cur), 0.0);
     }
 
+    fn make_network_stats(rx: u64, tx: u64) -> NetworkStats {
+        NetworkStats {
+            rx_bytes: rx,
+            rx_packets: 0,
+            rx_errors: 0,
+            rx_dropped: 0,
+            tx_bytes: tx,
+            tx_packets: 0,
+            tx_errors: 0,
+            tx_dropped: 0,
+        }
+    }
+
     #[test]
-    fn memory_percent_zero_when_limit_zero() {
-        assert_eq!(calculate_memory_percent_unix_no_cache(0.0, 100.0), 0.0);
+    fn network_io_sums_interfaces() {
+        use bollard::container::{
+            BlkioStats, CPUStats, CPUUsage, MemoryStats, PidsStats, Stats,
+        };
+
+        let mut nets = HashMap::new();
+        nets.insert("eth0".to_string(), make_network_stats(1000, 2000));
+        nets.insert("eth1".to_string(), make_network_stats(500, 300));
+
+        let stats = Stats {
+            name: "c".to_string(),
+            id: "id".to_string(),
+            read: "2024-01-01T00:00:00Z".to_string(),
+            preread: "2024-01-01T00:00:00Z".to_string(),
+            num_procs: 0,
+            networks: Some(nets),
+            blkio_stats: BlkioStats {
+                io_service_bytes_recursive: None,
+                io_serviced_recursive: None,
+                io_queue_recursive: None,
+                io_service_time_recursive: None,
+                io_wait_time_recursive: None,
+                io_merged_recursive: None,
+                io_time_recursive: None,
+                sectors_recursive: None,
+            },
+            pids_stats: PidsStats { current: Some(3), limit: None },
+            cpu_stats: CPUStats {
+                cpu_usage: CPUUsage { total_usage: 0, percpu_usage: None, usage_in_usermode: 0, usage_in_kernelmode: 0 },
+                system_cpu_usage: None,
+                online_cpus: None,
+                throttling_data: empty_throttling(),
+            },
+            precpu_stats: CPUStats {
+                cpu_usage: CPUUsage { total_usage: 0, percpu_usage: None, usage_in_usermode: 0, usage_in_kernelmode: 0 },
+                system_cpu_usage: None,
+                online_cpus: None,
+                throttling_data: empty_throttling(),
+            },
+            memory_stats: MemoryStats { stats: None, max_usage: None, usage: None, failcnt: None, limit: None, privateworkingset: None },
+            storage_stats: None,
+        };
+
+        let (rx, tx) = network_io(&stats);
+        assert_eq!(rx, 1500);
+        assert_eq!(tx, 2300);
+        assert_eq!(pid_count(&stats), 3);
+    }
+
+    #[test]
+    fn block_io_sums_read_and_write() {
+        use bollard::container::{
+            BlkioStats, CPUStats, CPUUsage, MemoryStats, PidsStats, Stats,
+        };
+
+        let entries = vec![
+            BlkioStatsEntry { major: 8, minor: 0, op: "Read".to_string(), value: 4096 },
+            BlkioStatsEntry { major: 8, minor: 0, op: "Write".to_string(), value: 8192 },
+            BlkioStatsEntry { major: 8, minor: 0, op: "Total".to_string(), value: 12288 },
+        ];
+
+        let stats = Stats {
+            name: "c".to_string(),
+            id: "id".to_string(),
+            read: "2024-01-01T00:00:00Z".to_string(),
+            preread: "2024-01-01T00:00:00Z".to_string(),
+            num_procs: 0,
+            networks: None,
+            blkio_stats: BlkioStats {
+                io_service_bytes_recursive: Some(entries),
+                io_serviced_recursive: None,
+                io_queue_recursive: None,
+                io_service_time_recursive: None,
+                io_wait_time_recursive: None,
+                io_merged_recursive: None,
+                io_time_recursive: None,
+                sectors_recursive: None,
+            },
+            pids_stats: PidsStats { current: None, limit: None },
+            cpu_stats: CPUStats {
+                cpu_usage: CPUUsage { total_usage: 0, percpu_usage: None, usage_in_usermode: 0, usage_in_kernelmode: 0 },
+                system_cpu_usage: None,
+                online_cpus: None,
+                throttling_data: empty_throttling(),
+            },
+            precpu_stats: CPUStats {
+                cpu_usage: CPUUsage { total_usage: 0, percpu_usage: None, usage_in_usermode: 0, usage_in_kernelmode: 0 },
+                system_cpu_usage: None,
+                online_cpus: None,
+                throttling_data: empty_throttling(),
+            },
+            memory_stats: MemoryStats { stats: None, max_usage: None, usage: None, failcnt: None, limit: None, privateworkingset: None },
+            storage_stats: None,
+        };
+
+        let (read, write) = block_io(&stats);
+        assert_eq!(read, 4096);
+        assert_eq!(write, 8192);
     }
 }

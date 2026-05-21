@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use bollard::Docker;
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::config::Config;
 use crate::sink::{build_http_client, Sink};
@@ -34,7 +34,16 @@ async fn main() -> anyhow::Result<()> {
         .await
         .context("Docker API version negotiation")?;
 
-    info!("Waiting for Swarmbot…");
+    match docker.version().await {
+        Ok(v) => info!(
+            engine = %v.version.as_deref().unwrap_or("?"),
+            api = %v.api_version.as_deref().unwrap_or("?"),
+            "Docker Engine connected"
+        ),
+        Err(e) => warn!(error = %e, "Could not fetch Docker version"),
+    }
+
+    info!("Waiting for Swarmboty…");
     let sink = Sink::new(config.clone(), (*http).clone());
     sink.wait_for_health().await;
 
@@ -58,7 +67,7 @@ async fn main() -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8080")
         .await
         .context("bind :8080")?;
-    info!("Swarmbot agent listening on port 8080");
+    info!("Swarmboty agent listening on port 8080");
     axum::serve(
         listener,
         web::router(state).into_make_service_with_connect_info::<SocketAddr>(),

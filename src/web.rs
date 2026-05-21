@@ -10,7 +10,7 @@ use axum::middleware::{self, Next};
 use axum::response::Response;
 use axum::routing::get;
 use axum::{Json, Router};
-use bollard::container::LogsOptions;
+use bollard::container::{InspectContainerOptions, LogsOptions};
 use bollard::Docker;
 use bytes::BytesMut;
 use futures_util::StreamExt;
@@ -28,14 +28,53 @@ pub struct AppState {
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/", get(info))
+        .route("/version", get(version))
         .route("/logs/:container", get(logs))
+        .route("/inspect/:container", get(inspect))
         .layer(middleware::from_fn(access_log))
         .with_state(state)
 }
 
+// ── Handlers ──────────────────────────────────────────────────────────────────
+
 async fn info(State(state): State<AppState>) -> Json<crate::config::InfoResponse> {
     Json(state.config.to_info_json())
 }
+
+/// Returns the raw output of `docker version` — engine version, API version,
+/// Go version, OS/arch, and build metadata.
+async fn version(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let v = state
+        .docker
+        .version()
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(
+        serde_json::to_value(v).unwrap_or(serde_json::Value::Null),
+    ))
+}
+
+/// Returns the full `docker inspect` output for a single container.
+/// Useful for health status, mounts, environment variables, and labels
+/// without needing shell access to the node.
+async fn inspect(
+    State(state): State<AppState>,
+    Path(container): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let opts = Some(InspectContainerOptions { size: false });
+    let detail = state
+        .docker
+        .inspect_container(&container, opts)
+        .await
+        .map_err(|e| (StatusCode::NOT_FOUND, e.to_string()))?;
+    Ok(Json(
+        serde_json::to_value(detail).unwrap_or(serde_json::Value::Null),
+    ))
+}
+
+// ── Logs ──────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize, Default)]
 pub struct LogsQuery {
@@ -84,6 +123,8 @@ async fn logs(
     Ok(Json(s))
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
 fn parse_since_unix(raw: &Option<String>) -> Result<i64, String> {
     let Some(s) = raw.as_ref().map(|x| x.trim()).filter(|x| !x.is_empty()) else {
         return Ok(0);
@@ -130,6 +171,8 @@ async fn access_log(
     );
     resp
 }
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {

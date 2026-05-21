@@ -43,7 +43,14 @@ pub async fn run(docker: Docker, sink: Arc<Sink>, cfg: Arc<Config>) {
 }
 
 async fn tick(docker: &Docker, sink: &Sink, cfg: &Config) -> anyhow::Result<()> {
-    let info = docker.info().await.context("docker info")?;
+    // `docker info` returns Swarm membership, CPU count, and OS type.
+    // `docker version` returns the Engine and API version strings.
+    let (info, ver) = tokio::try_join!(
+        docker.info(),
+        docker.version(),
+    )
+    .context("docker info / version")?;
+
     let node_id = info
         .swarm
         .as_ref()
@@ -51,6 +58,16 @@ async fn tick(docker: &Docker, sink: &Sink, cfg: &Config) -> anyhow::Result<()> 
         .unwrap_or_default();
     let ncpu = info.ncpu.unwrap_or(1) as i32;
     let os_type = info.os_type.clone().unwrap_or_else(|| "linux".to_string());
+
+    let engine_version = ver
+        .version
+        .clone()
+        .unwrap_or_else(|| info.server_version.clone().unwrap_or_default());
+    let api_version = ver.api_version.clone().unwrap_or_default();
+    let kernel_version = ver
+        .kernel_version
+        .clone()
+        .unwrap_or_else(|| info.kernel_version.clone().unwrap_or_default());
 
     let mut sys = host::new_system();
     let memory = host::memory_usage(&mut sys);
@@ -90,6 +107,9 @@ async fn tick(docker: &Docker, sink: &Sink, cfg: &Config) -> anyhow::Result<()> 
         cpu,
         memory,
         tasks,
+        engine_version,
+        api_version,
+        kernel_version,
     };
     sink.post_event("stats", &status).await?;
     Ok(())
