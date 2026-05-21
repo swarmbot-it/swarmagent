@@ -59,3 +59,33 @@ impl ContainerStatus {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn empty_container_status_zeros() {
+        let s = ContainerStatus::empty("abc123");
+        assert_eq!(s.id, "abc123");
+        assert!(s.name.is_empty());
+        assert_eq!(s.cpu_percentage, 0.0);
+    }
+
+    #[test]
+    fn container_status_serializes_camel_case_fields() {
+        let s = ContainerStatus {
+            name: "web".into(),
+            id: "id1".into(),
+            cpu_percentage: 12.5,
+            memory: 100.0,
+            memory_limit: 200.0,
+            memory_percentage: 50.0,
+        };
+        let v = serde_json::to_value(&s).unwrap();
+        assert_eq!(v["cpuPercentage"], json!(12.5));
+        assert_eq!(v["memoryLimit"], json!(200.0));
+        assert_eq!(v["memoryPercentage"], json!(50.0));
+    }
+}

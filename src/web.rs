@@ -130,3 +130,34 @@ async fn access_log(
     );
     resp
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_since_missing_or_empty_is_zero() {
+        assert_eq!(parse_since_unix(&None).unwrap(), 0);
+        assert_eq!(parse_since_unix(&Some("".into())).unwrap(), 0);
+        assert_eq!(parse_since_unix(&Some("  ".into())).unwrap(), 0);
+    }
+
+    #[test]
+    fn parse_since_unix_seconds() {
+        assert_eq!(
+            parse_since_unix(&Some("1700000000".into())).unwrap(),
+            1_700_000_000
+        );
+    }
+
+    #[test]
+    fn parse_since_rfc3339() {
+        let ts = parse_since_unix(&Some("2024-01-15T12:00:00Z".into())).unwrap();
+        assert_eq!(ts, 1_705_320_000);
+    }
+
+    #[test]
+    fn parse_since_rejects_invalid() {
+        assert!(parse_since_unix(&Some("not-a-date".into())).is_err());
+    }
+}

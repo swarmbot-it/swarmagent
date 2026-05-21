@@ -135,4 +135,54 @@ mod tests {
         let p = calculate_cpu_percent_windows(1_000_000, 4, 25_000);
         assert!((p - 62.5).abs() < 0.01);
     }
+
+    fn empty_throttling() -> bollard::container::ThrottlingData {
+        bollard::container::ThrottlingData {
+            periods: 0,
+            throttled_periods: 0,
+            throttled_time: 0,
+        }
+    }
+
+    #[test]
+    fn unix_cpu_percent_with_online_cpus() {
+        use bollard::container::{CPUStats, CPUUsage};
+
+        let cur = CPUStats {
+            cpu_usage: CPUUsage {
+                total_usage: 200,
+                percpu_usage: None,
+                usage_in_usermode: 0,
+                usage_in_kernelmode: 0,
+            },
+            system_cpu_usage: Some(2000),
+            online_cpus: Some(2),
+            throttling_data: empty_throttling(),
+        };
+        let p = calculate_cpu_percent_unix(100, 1000, &cur);
+        assert!((p - 20.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn unix_cpu_percent_zero_when_no_delta() {
+        use bollard::container::{CPUStats, CPUUsage};
+
+        let cur = CPUStats {
+            cpu_usage: CPUUsage {
+                total_usage: 0,
+                percpu_usage: None,
+                usage_in_usermode: 0,
+                usage_in_kernelmode: 0,
+            },
+            system_cpu_usage: Some(1000),
+            online_cpus: Some(1),
+            throttling_data: empty_throttling(),
+        };
+        assert_eq!(calculate_cpu_percent_unix(0, 1000, &cur), 0.0);
+    }
+
+    #[test]
+    fn memory_percent_zero_when_limit_zero() {
+        assert_eq!(calculate_memory_percent_unix_no_cache(0.0, 100.0), 0.0);
+    }
 }

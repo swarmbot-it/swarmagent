@@ -79,3 +79,13 @@ pub fn build_http_client() -> anyhow::Result<reqwest::Client> {
         .build()
         .context("build reqwest client")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_http_client_ok() {
+        build_http_client().expect("reqwest client");
+    }
+}

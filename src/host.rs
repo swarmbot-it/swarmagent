@@ -79,3 +79,28 @@ pub fn new_system() -> System {
             .with_memory(MemoryRefreshKind::everything()),
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn disk_usage_percent_in_range() {
+        let d = disk_usage();
+        assert!(d.used_percentage >= 0.0 && d.used_percentage <= 100.0);
+        if d.total > 0 {
+            assert!(d.used <= d.total);
+            assert!(d.free <= d.total);
+        }
+    }
+
+    #[test]
+    fn memory_and_cpu_sample() {
+        let mut sys = new_system();
+        let mem = memory_usage(&mut sys);
+        assert!(mem.used_percentage >= 0.0 && mem.used_percentage <= 100.0);
+        let cpu = cpu_usage(&mut sys, 1);
+        assert!(cpu.cores >= 1);
+        assert!(cpu.used_percentage >= 0.0);
+    }
+}
