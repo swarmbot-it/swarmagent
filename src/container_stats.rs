@@ -215,27 +215,13 @@ pub fn container_status_from_stats(
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use bollard::container::{BlkioStats, BlkioStatsEntry, NetworkStats, PidsStats};
+	use bollard::container::{
+		BlkioStats, BlkioStatsEntry, CPUStats, CPUUsage, MemoryStats, NetworkStats, PidsStats,
+		Stats, StorageStats,
+	};
 	use std::collections::HashMap;
 
-	#[test]
-	fn memory_no_cache() {
-		let u = calculate_memory_usage_unix_no_cache(500, 200);
-		assert!((u - 300.0).abs() < f64::EPSILON);
-		let pct = calculate_memory_percent_unix_no_cache(1000.0, 250.0);
-		assert!((pct - 25.0).abs() < f64::EPSILON);
-	}
-
-	#[test]
-	fn memory_percent_zero_when_limit_zero() {
-		assert_eq!(calculate_memory_percent_unix_no_cache(0.0, 100.0), 0.0);
-	}
-
-	#[test]
-	fn windows_cpu_percent() {
-		let p = calculate_cpu_percent_windows(1_000_000, 4, 25_000);
-		assert!((p - 62.5).abs() < 0.01);
-	}
+	// ── Test helpers ──────────────────────────────────────────────────────────
 
 	fn empty_throttling() -> bollard::container::ThrottlingData {
 		bollard::container::ThrottlingData {
@@ -245,41 +231,72 @@ mod tests {
 		}
 	}
 
-	#[test]
-	fn unix_cpu_percent_with_online_cpus() {
-		use bollard::container::{CPUStats, CPUUsage};
-
-		let cur = CPUStats {
-			cpu_usage: CPUUsage {
-				total_usage: 200,
-				percpu_usage: None,
-				usage_in_usermode: 0,
-				usage_in_kernelmode: 0,
-			},
-			system_cpu_usage: Some(2000),
-			online_cpus: Some(2),
-			throttling_data: empty_throttling(),
-		};
-		let p = calculate_cpu_percent_unix(100, 1000, &cur);
-		assert!((p - 20.0).abs() < f64::EPSILON);
-	}
-
-	#[test]
-	fn unix_cpu_percent_zero_when_no_delta() {
-		use bollard::container::{CPUStats, CPUUsage};
-
-		let cur = CPUStats {
+	fn empty_cpu_stats() -> CPUStats {
+		CPUStats {
 			cpu_usage: CPUUsage {
 				total_usage: 0,
 				percpu_usage: None,
 				usage_in_usermode: 0,
 				usage_in_kernelmode: 0,
 			},
-			system_cpu_usage: Some(1000),
-			online_cpus: Some(1),
+			system_cpu_usage: None,
+			online_cpus: None,
 			throttling_data: empty_throttling(),
-		};
-		assert_eq!(calculate_cpu_percent_unix(0, 1000, &cur), 0.0);
+		}
+	}
+
+	fn empty_memory_stats() -> MemoryStats {
+		MemoryStats {
+			stats: None,
+			max_usage: None,
+			usage: None,
+			failcnt: None,
+			limit: None,
+			commit: None,
+			commit_peak: None,
+			commitbytes: None,
+			commitpeakbytes: None,
+			privateworkingset: None,
+		}
+	}
+
+	fn empty_blkio_stats() -> BlkioStats {
+		BlkioStats {
+			io_service_bytes_recursive: None,
+			io_serviced_recursive: None,
+			io_queue_recursive: None,
+			io_service_time_recursive: None,
+			io_wait_time_recursive: None,
+			io_merged_recursive: None,
+			io_time_recursive: None,
+			sectors_recursive: None,
+		}
+	}
+
+	fn make_stats() -> Stats {
+		Stats {
+			name: String::new(),
+			id: String::new(),
+			read: "2024-01-01T00:00:00Z".to_string(),
+			preread: "2024-01-01T00:00:00Z".to_string(),
+			num_procs: 0,
+			network: None,
+			networks: None,
+			pids_stats: PidsStats {
+				current: None,
+				limit: None,
+			},
+			blkio_stats: empty_blkio_stats(),
+			cpu_stats: empty_cpu_stats(),
+			precpu_stats: empty_cpu_stats(),
+			memory_stats: empty_memory_stats(),
+			storage_stats: StorageStats {
+				read_count_normalized: None,
+				read_size_bytes: None,
+				write_count_normalized: None,
+				write_size_bytes: None,
+			},
+		}
 	}
 
 	fn make_network_stats(rx: u64, tx: u64) -> NetworkStats {
@@ -295,68 +312,114 @@ mod tests {
 		}
 	}
 
+	// ── Pure math ──────────────────────────────────────────────────────────────
+
+	#[test]
+	fn memory_no_cache() {
+		let u = calculate_memory_usage_unix_no_cache(500, 200);
+		assert!((u - 300.0).abs() < f64::EPSILON);
+		let pct = calculate_memory_percent_unix_no_cache(1000.0, 250.0);
+		assert!((pct - 25.0).abs() < f64::EPSILON);
+	}
+
+	#[test]
+	fn memory_percent_zero_when_limit_zero() {
+		assert_eq!(calculate_memory_percent_unix_no_cache(0.0, 100.0), 0.0);
+	}
+
+	#[test]
+	fn memory_usage_clamps_on_underflow() {
+		assert_eq!(calculate_memory_usage_unix_no_cache(100, 200), 0.0);
+	}
+
+	#[test]
+	fn windows_cpu_percent() {
+		let p = calculate_cpu_percent_windows(1_000_000, 4, 25_000);
+		assert!((p - 62.5).abs() < 0.01);
+	}
+
+	#[test]
+	fn windows_cpu_percent_zero_when_divisor_zero() {
+		assert_eq!(calculate_cpu_percent_windows(0, 4, 1000), 0.0);
+	}
+
+	#[test]
+	fn unix_cpu_percent_with_online_cpus() {
+		let cur = CPUStats {
+			cpu_usage: CPUUsage {
+				total_usage: 200,
+				percpu_usage: None,
+				usage_in_usermode: 0,
+				usage_in_kernelmode: 0,
+			},
+			system_cpu_usage: Some(2000),
+			online_cpus: Some(2),
+			throttling_data: empty_throttling(),
+		};
+		// (100/1000) * 2 * 100 = 20.0
+		assert!((calculate_cpu_percent_unix(100, 1000, &cur) - 20.0).abs() < f64::EPSILON);
+	}
+
+	#[test]
+	fn unix_cpu_percent_zero_when_no_delta() {
+		let cur = CPUStats {
+			system_cpu_usage: Some(1000),
+			online_cpus: Some(1),
+			..empty_cpu_stats()
+		};
+		assert_eq!(calculate_cpu_percent_unix(0, 1000, &cur), 0.0);
+	}
+
+	#[test]
+	fn unix_cpu_percent_falls_back_to_percpu_count() {
+		// online_cpus absent → falls back to percpu_usage.len() = 4
+		let cur = CPUStats {
+			cpu_usage: CPUUsage {
+				total_usage: 200,
+				percpu_usage: Some(vec![50, 50, 50, 50]),
+				usage_in_usermode: 0,
+				usage_in_kernelmode: 0,
+			},
+			system_cpu_usage: Some(2000),
+			online_cpus: None,
+			throttling_data: empty_throttling(),
+		};
+		// (100/1000) * 4 * 100 = 40.0
+		assert!((calculate_cpu_percent_unix(100, 1000, &cur) - 40.0).abs() < f64::EPSILON);
+	}
+
+	// ── Stats field extractors ─────────────────────────────────────────────────
+
+	#[test]
+	fn pid_count_with_value() {
+		let stats = Stats {
+			pids_stats: PidsStats {
+				current: Some(7),
+				limit: None,
+			},
+			..make_stats()
+		};
+		assert_eq!(pid_count(&stats), 7);
+	}
+
+	#[test]
+	fn pid_count_none_returns_zero() {
+		assert_eq!(pid_count(&make_stats()), 0);
+	}
+
 	#[test]
 	fn network_io_sums_interfaces() {
-		use bollard::container::{BlkioStats, CPUStats, CPUUsage, MemoryStats, PidsStats, Stats};
-
 		let mut nets = HashMap::new();
 		nets.insert("eth0".to_string(), make_network_stats(1000, 2000));
 		nets.insert("eth1".to_string(), make_network_stats(500, 300));
-
 		let stats = Stats {
-			name: "c".to_string(),
-			id: "id".to_string(),
-			read: "2024-01-01T00:00:00Z".to_string(),
-			preread: "2024-01-01T00:00:00Z".to_string(),
-			num_procs: 0,
 			networks: Some(nets),
-			blkio_stats: BlkioStats {
-				io_service_bytes_recursive: None,
-				io_serviced_recursive: None,
-				io_queue_recursive: None,
-				io_service_time_recursive: None,
-				io_wait_time_recursive: None,
-				io_merged_recursive: None,
-				io_time_recursive: None,
-				sectors_recursive: None,
-			},
 			pids_stats: PidsStats {
 				current: Some(3),
 				limit: None,
 			},
-			cpu_stats: CPUStats {
-				cpu_usage: CPUUsage {
-					total_usage: 0,
-					percpu_usage: None,
-					usage_in_usermode: 0,
-					usage_in_kernelmode: 0,
-				},
-				system_cpu_usage: None,
-				online_cpus: None,
-				throttling_data: empty_throttling(),
-			},
-			precpu_stats: CPUStats {
-				cpu_usage: CPUUsage {
-					total_usage: 0,
-					percpu_usage: None,
-					usage_in_usermode: 0,
-					usage_in_kernelmode: 0,
-				},
-				system_cpu_usage: None,
-				online_cpus: None,
-				throttling_data: empty_throttling(),
-			},
-			memory_stats: MemoryStats {
-				stats: None,
-				max_usage: None,
-				usage: None,
-				failcnt: None,
-				limit: None,
-				privateworkingset: None,
-			},
-			storage_stats: None,
+			..make_stats()
 		};
-
 		let (rx, tx) = network_io(&stats);
 		assert_eq!(rx, 1500);
 		assert_eq!(tx, 2300);
@@ -364,9 +427,12 @@ mod tests {
 	}
 
 	#[test]
-	fn block_io_sums_read_and_write() {
-		use bollard::container::{BlkioStats, CPUStats, CPUUsage, MemoryStats, PidsStats, Stats};
+	fn network_io_none_networks_is_zero() {
+		assert_eq!(network_io(&make_stats()), (0, 0));
+	}
 
+	#[test]
+	fn block_io_sums_read_and_write() {
 		let entries = vec![
 			BlkioStatsEntry {
 				major: 8,
@@ -387,63 +453,132 @@ mod tests {
 				value: 12288,
 			},
 		];
-
 		let stats = Stats {
-			name: "c".to_string(),
-			id: "id".to_string(),
-			read: "2024-01-01T00:00:00Z".to_string(),
-			preread: "2024-01-01T00:00:00Z".to_string(),
-			num_procs: 0,
-			networks: None,
 			blkio_stats: BlkioStats {
 				io_service_bytes_recursive: Some(entries),
-				io_serviced_recursive: None,
-				io_queue_recursive: None,
-				io_service_time_recursive: None,
-				io_wait_time_recursive: None,
-				io_merged_recursive: None,
-				io_time_recursive: None,
-				sectors_recursive: None,
+				..empty_blkio_stats()
 			},
+			..make_stats()
+		};
+		let (read, write) = block_io(&stats);
+		assert_eq!(read, 4096);
+		assert_eq!(write, 8192);
+	}
+
+	#[test]
+	fn block_io_none_is_zero() {
+		assert_eq!(block_io(&make_stats()), (0, 0));
+	}
+
+	// ── container_status_from_stats ────────────────────────────────────────────
+
+	#[test]
+	fn container_status_linux_path() {
+		let mut nets = HashMap::new();
+		nets.insert("eth0".to_string(), make_network_stats(1024, 2048));
+		let stats = Stats {
+			name: "/web".to_string(),
+			id: "abc".to_string(),
+			networks: Some(nets),
 			pids_stats: PidsStats {
-				current: None,
+				current: Some(5),
 				limit: None,
 			},
 			cpu_stats: CPUStats {
 				cpu_usage: CPUUsage {
-					total_usage: 0,
+					total_usage: 200,
 					percpu_usage: None,
 					usage_in_usermode: 0,
 					usage_in_kernelmode: 0,
 				},
-				system_cpu_usage: None,
-				online_cpus: None,
+				system_cpu_usage: Some(2000),
+				online_cpus: Some(2),
 				throttling_data: empty_throttling(),
 			},
 			precpu_stats: CPUStats {
 				cpu_usage: CPUUsage {
-					total_usage: 0,
+					total_usage: 100,
 					percpu_usage: None,
 					usage_in_usermode: 0,
 					usage_in_kernelmode: 0,
 				},
-				system_cpu_usage: None,
+				system_cpu_usage: Some(1000),
 				online_cpus: None,
 				throttling_data: empty_throttling(),
 			},
 			memory_stats: MemoryStats {
-				stats: None,
-				max_usage: None,
-				usage: None,
-				failcnt: None,
-				limit: None,
-				privateworkingset: None,
+				usage: Some(1000),
+				limit: Some(2000),
+				..empty_memory_stats()
 			},
-			storage_stats: None,
+			blkio_stats: BlkioStats {
+				io_service_bytes_recursive: Some(vec![
+					BlkioStatsEntry {
+						major: 8,
+						minor: 0,
+						op: "Read".to_string(),
+						value: 300,
+					},
+					BlkioStatsEntry {
+						major: 8,
+						minor: 0,
+						op: "Write".to_string(),
+						value: 400,
+					},
+				]),
+				..empty_blkio_stats()
+			},
+			..make_stats()
 		};
 
-		let (read, write) = block_io(&stats);
-		assert_eq!(read, 4096);
-		assert_eq!(write, 8192);
+		let cs = container_status_from_stats(&stats, "linux");
+		assert_eq!(cs.name, "/web");
+		assert_eq!(cs.id, "abc");
+		// cpu: (100/1000) * 2 * 100 = 20.0
+		assert!((cs.cpu_percentage - 20.0).abs() < f64::EPSILON);
+		// memory: 1000 − 0 cache = 1000, limit 2000, percent 50.0
+		assert!((cs.memory - 1000.0).abs() < f64::EPSILON);
+		assert!((cs.memory_limit - 2000.0).abs() < f64::EPSILON);
+		assert!((cs.memory_percentage - 50.0).abs() < f64::EPSILON);
+		assert_eq!(cs.network_rx_bytes, 1024);
+		assert_eq!(cs.network_tx_bytes, 2048);
+		assert_eq!(cs.block_read_bytes, 300);
+		assert_eq!(cs.block_write_bytes, 400);
+		assert_eq!(cs.pids, 5);
+	}
+
+	#[test]
+	fn container_status_windows_path() {
+		let stats = Stats {
+			name: "/win".to_string(),
+			id: "win1".to_string(),
+			// 1 second interval → 1_000_000_000 ns
+			read: "2024-01-01T00:00:01Z".to_string(),
+			preread: "2024-01-01T00:00:00Z".to_string(),
+			num_procs: 4,
+			cpu_stats: CPUStats {
+				cpu_usage: CPUUsage {
+					total_usage: 50_000_000,
+					..empty_cpu_stats().cpu_usage
+				},
+				..empty_cpu_stats()
+			},
+			precpu_stats: empty_cpu_stats(),
+			memory_stats: MemoryStats {
+				privateworkingset: Some(1024 * 1024),
+				..empty_memory_stats()
+			},
+			..make_stats()
+		};
+
+		let cs = container_status_from_stats(&stats, "Windows");
+		assert_eq!(cs.name, "/win");
+		// poss = (1_000_000_000 / 100) * 4 = 40_000_000
+		// cpu% = 50_000_000 / 40_000_000 * 100 = 125.0
+		assert!((cs.cpu_percentage - 125.0).abs() < 0.01);
+		assert!((cs.memory - (1024.0 * 1024.0)).abs() < f64::EPSILON);
+		assert_eq!(cs.memory_limit, 0.0);
+		assert_eq!(cs.memory_percentage, 0.0);
+		assert_eq!(cs.pids, 0);
 	}
 }

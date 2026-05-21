@@ -90,3 +90,35 @@ pub async fn run(docker: Docker, sink: Arc<Sink>) {
 		delay = (delay * 2).min(Duration::from_secs(60));
 	}
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn events_options_has_type_filter() {
+		let opts = events_options();
+		let types = opts
+			.filters
+			.get("type")
+			.expect("type filter must be present");
+		for t in RELEVANT_TYPES {
+			assert!(types.contains(&t.to_string()), "missing type: {t}");
+		}
+		assert_eq!(types.len(), RELEVANT_TYPES.len());
+	}
+
+	#[test]
+	fn events_options_excludes_build_and_plugin() {
+		let opts = events_options();
+		let types = opts.filters.get("type").unwrap();
+		assert!(!types.contains(&"build".to_string()));
+		assert!(!types.contains(&"plugin".to_string()));
+		assert!(!types.contains(&"image".to_string()));
+	}
+
+	#[test]
+	fn relevant_types_count() {
+		assert_eq!(RELEVANT_TYPES.len(), 7);
+	}
+}
