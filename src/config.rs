@@ -12,6 +12,10 @@ pub struct Config {
     pub debug_stats: bool,
     pub stats_max_concurrency: usize,
     pub logs_max_bytes: usize,
+    /// Shared secret sent as `X-Agent-Token` to Swarmbot and required (if set)
+    /// from callers of this agent's own HTTP API. Opt-in: unset means no
+    /// auth is enforced, matching the previous behavior.
+    pub shared_secret: Option<String>,
 }
 
 impl Config {
@@ -24,6 +28,9 @@ impl Config {
             debug_stats: parse_bool_env("DEBUG_STATS", false),
             stats_max_concurrency: parse_usize_env("STATS_MAX_CONCURRENCY", 32).clamp(1, 512),
             logs_max_bytes: parse_usize_env("LOGS_MAX_BYTES", 4 * 1024 * 1024).max(4096),
+            shared_secret: env::var("SWARMAGENT_SHARED_SECRET")
+                .ok()
+                .filter(|v| !v.is_empty()),
         }
     }
 

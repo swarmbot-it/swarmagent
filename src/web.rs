@@ -7,7 +7,7 @@ use axum::extract::{ConnectInfo, Path, Query, State};
 use axum::http::header::{REFERER, USER_AGENT};
 use axum::http::{Request, StatusCode};
 use axum::middleware::{self, Next};
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
 use bollard::container::LogsOptions;
@@ -29,8 +29,26 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/", get(info))
         .route("/logs/:container", get(logs))
+        .layer(middleware::from_fn_with_state(state.clone(), require_token))
         .layer(middleware::from_fn(access_log))
         .with_state(state)
+}
+
+/// Opt-in auth: if `SWARMAGENT_SHARED_SECRET` is configured, callers must send
+/// the same value as `X-Agent-Token`. Unset (the default) enforces nothing,
+/// matching the previous open behavior.
+async fn require_token(State(state): State<AppState>, req: Request<Body>, next: Next) -> Response {
+    if let Some(expected) = &state.config.shared_secret {
+        let provided = req
+            .headers()
+            .get("X-Agent-Token")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        if provided != expected {
+            return (StatusCode::UNAUTHORIZED, "missing or invalid X-Agent-Token").into_response();
+        }
+    }
+    next.run(req).await
 }
 
 async fn info(State(state): State<AppState>) -> Json<crate::config::InfoResponse> {
