@@ -4,6 +4,10 @@ on:
   push:
     branches: [main, master]
   pull_request:
+  schedule:
+    # Catches newly-disclosed RustSec advisories in already-pinned
+    # dependencies even when nothing in the repo changes.
+    - cron: "0 6 * * 1"
 
 env:
   CARGO_TERM_COLOR: always
@@ -19,3 +23,11 @@ jobs:
       - run: cargo fmt --all -- --check
       - run: cargo clippy --release -- -D warnings
       - run: cargo test --release
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
