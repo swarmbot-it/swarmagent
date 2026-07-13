@@ -162,6 +162,7 @@ fn parse_ts(s: &str) -> Option<DateTime<Utc>> {
 pub fn container_status_from_stats(
 	stats: &Stats,
 	daemon_os_type: &str,
+	container_id: &str,
 ) -> crate::models::ContainerStatus {
 	let is_windows = daemon_os_type.eq_ignore_ascii_case("windows");
 
@@ -197,9 +198,19 @@ pub fn container_status_from_stats(
 	let (network_rx_bytes, network_tx_bytes) = network_io(stats);
 	let (block_read_bytes, block_write_bytes) = block_io(stats);
 
+	let id = if stats.id.is_empty() {
+		container_id.to_string()
+	} else {
+		stats.id.clone()
+	};
+
 	crate::models::ContainerStatus {
 		name: stats.name.clone(),
-		id: stats.id.clone(),
+		id,
+		namespace: None,
+		pod: None,
+		workload: None,
+		workload_kind: None,
 		cpu_percentage: cpu_percent,
 		memory,
 		memory_limit,
@@ -531,7 +542,7 @@ mod tests {
 			..make_stats()
 		};
 
-		let cs = container_status_from_stats(&stats, "linux");
+		let cs = container_status_from_stats(&stats, "linux", "fullcontainerid123");
 		assert_eq!(cs.name, "/web");
 		assert_eq!(cs.id, "abc");
 		// cpu: (100/1000) * 2 * 100 = 20.0
@@ -571,7 +582,7 @@ mod tests {
 			..make_stats()
 		};
 
-		let cs = container_status_from_stats(&stats, "Windows");
+		let cs = container_status_from_stats(&stats, "Windows", "wincontainerid");
 		assert_eq!(cs.name, "/win");
 		// poss = (1_000_000_000 / 100) * 4 = 40_000_000
 		// cpu% = 50_000_000 / 40_000_000 * 100 = 125.0

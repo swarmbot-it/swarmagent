@@ -6,9 +6,35 @@
 use std::env;
 use std::time::Duration;
 
+/// Requested agent mode (`AGENT_MODE` env). `Auto` resolves at startup based
+/// on the environment the agent runs in — see [`crate::detect`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentMode {
+	/// Detect the orchestrator automatically (default).
+	Auto,
+	/// Force the Docker Engine provider (Swarm or standalone).
+	Docker,
+	/// Force the Kubernetes provider (k3s or any conformant cluster).
+	Kubernetes,
+}
+
+/// How container/node statistics are fetched in Kubernetes mode
+/// (`AGENT_KUBELET_MODE` env).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KubeletMode {
+	/// Query the kubelet Summary API directly on `https://<hostIP>:10250`.
+	/// Falls back to `Proxy` when the direct call fails.
+	Direct,
+	/// Always go through the API server proxy
+	/// (`/api/v1/nodes/{node}/proxy/stats/summary`).
+	Proxy,
+}
+
 /// Runtime configuration loaded from environment variables.
 #[derive(Debug, Clone)]
 pub struct Config {
+	/// Requested orchestrator mode. `AGENT_MODE` env, default `auto`.
+	pub agent_mode: AgentMode,
 	/// How often to sample container statistics (minimum 1 s). `STATS_FREQUENCY` env, default 30 s.
 	pub stats_frequency: Duration,
 	/// URL of the Swarmboty `/events` endpoint. `EVENT_ENDPOINT` env.
@@ -19,60 +45,63 @@ pub struct Config {
 	pub debug_event: bool,
 	/// When `true`, log each stats payload at `DEBUG` level. `DEBUG_STATS` env.
 	pub debug_stats: bool,
-	/// Maximum number of concurrent `docker stats` calls per tick. `STATS_MAX_CONCURRENCY` env, default 32, clamped to 1–512.
+	/// Maximum number of concurrent `docker stats` calls per tick (Docker mode only).
+	/// `STATS_MAX_CONCURRENCY` env, default 32, clamped to 1–512.
 	pub stats_max_concurrency: usize,
-	/// Maximum response size for `GET /logs/:container`. `LOGS_MAX_BYTES` env, default 4 MiB.
-	pub logs_max_bytes: usize,
+	/// Kubernetes node this agent runs on. `NODE_NAME` env (Downward API,
+	/// `fieldRef: spec.nodeName`). Required in Kubernetes mode.
+	pub node_name: Option<String>,
+	/// Host IP of the node for direct kubelet access. `NODE_IP` env (Downward
+	/// API, `fieldRef: status.hostIP`). Optional — resolved from the Node
+	/// object when unset.
+	pub node_ip: Option<String>,
+	/// Skip TLS verification when talking to the kubelet directly (k3s uses a
+	/// self-signed serving certificate). `AGENT_KUBELET_INSECURE_TLS` env, default `true`.
+	pub kubelet_insecure_tls: bool,
+	/// Kubelet access mode. `AGENT_KUBELET_MODE` env (`direct`/`proxy`), default `direct`.
+	pub kubelet_mode: KubeletMode,
 }
 
 impl Config {
 	/// Build a [`Config`] from the process environment.
 	pub fn from_env() -> Self {
+		let base = swarmboty_base_url();
 		Self {
+			agent_mode: parse_agent_mode(&get_string("AGENT_MODE", "auto")),
 			stats_frequency: Duration::from_secs(parse_u64_env("STATS_FREQUENCY", 30).max(1)),
-			event_endpoint: get_string("EVENT_ENDPOINT", "http://app:8080/events"),
-			health_check_endpoint: get_string("HEALTH_CHECK_ENDPOINT", "http://app:8080/version"),
+			event_endpoint: get_string("EVENT_ENDPOINT", &endpoint_from_base(&base, "/events")),
+			health_check_endpoint: get_string(
+				"HEALTH_CHECK_ENDPOINT",
+				&endpoint_from_base(&base, "/version"),
+			),
 			debug_event: parse_bool_env("DEBUG_EVENT", false),
 			debug_stats: parse_bool_env("DEBUG_STATS", false),
 			stats_max_concurrency: parse_usize_env("STATS_MAX_CONCURRENCY", 32).clamp(1, 512),
-			logs_max_bytes: parse_usize_env("LOGS_MAX_BYTES", 4 * 1024 * 1024).max(4096),
-		}
-	}
-
-	/// Returns the subset of config fields exposed by `GET /`.
-	pub fn to_info_json(&self) -> InfoResponse {
-		InfoResponse {
-			stats_frequency: self.stats_frequency.as_secs() as i64,
-			event_endpoint: self.event_endpoint.clone(),
-			healthcheck_endpoint: self.health_check_endpoint.clone(),
-			debug: DebugFlags {
-				event: self.debug_event,
-				stats: self.debug_stats,
-			},
+			node_name: non_empty(env::var("NODE_NAME").ok()),
+			node_ip: non_empty(env::var("NODE_IP").ok()),
+			kubelet_insecure_tls: parse_bool_env("AGENT_KUBELET_INSECURE_TLS", true),
+			kubelet_mode: parse_kubelet_mode(&get_string("AGENT_KUBELET_MODE", "direct")),
 		}
 	}
 }
 
-/// JSON body returned by `GET /`.
-#[derive(Debug, serde::Serialize)]
-pub struct InfoResponse {
-	/// Stats sampling interval in seconds.
-	pub stats_frequency: i64,
-	/// Target URL for event forwarding.
-	pub event_endpoint: String,
-	/// URL polled to detect Swarmboty readiness.
-	pub healthcheck_endpoint: String,
-	/// Active debug flags.
-	pub debug: DebugFlags,
+fn non_empty(v: Option<String>) -> Option<String> {
+	v.map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
 }
 
-/// Debug logging flags included in the info response.
-#[derive(Debug, serde::Serialize)]
-pub struct DebugFlags {
-	/// `true` when Docker event payloads are logged at `DEBUG` level.
-	pub event: bool,
-	/// `true` when stats payloads are logged at `DEBUG` level.
-	pub stats: bool,
+fn parse_agent_mode(raw: &str) -> AgentMode {
+	match raw.trim().to_ascii_lowercase().as_str() {
+		"docker" | "swarm" => AgentMode::Docker,
+		"kubernetes" | "k8s" | "k3s" => AgentMode::Kubernetes,
+		_ => AgentMode::Auto,
+	}
+}
+
+fn parse_kubelet_mode(raw: &str) -> KubeletMode {
+	match raw.trim().to_ascii_lowercase().as_str() {
+		"proxy" => KubeletMode::Proxy,
+		_ => KubeletMode::Direct,
+	}
 }
 
 fn get_string(key: &str, default: &str) -> String {
@@ -80,6 +109,30 @@ fn get_string(key: &str, default: &str) -> String {
 		Ok(v) if !v.is_empty() => v,
 		_ => default.to_string(),
 	}
+}
+
+/// Base URL of the Swarmboty app.
+///
+/// Read from `SW4RM_BOT_URL` (name used by the swarmbot compose files) or the
+/// legacy `SWARMBOTY_URL`; otherwise derived from `EVENT_ENDPOINT`.
+fn swarmboty_base_url() -> String {
+	for key in ["SW4RM_BOT_URL", "SWARMBOTY_URL"] {
+		let direct = get_string(key, "");
+		if !direct.is_empty() {
+			return trim_trailing_slash(&direct);
+		}
+	}
+	let event = get_string("EVENT_ENDPOINT", "http://app:8080/events");
+	let base = event.strip_suffix("/events").unwrap_or(event.as_str());
+	trim_trailing_slash(base)
+}
+
+fn trim_trailing_slash(url: &str) -> String {
+	url.trim_end_matches('/').to_string()
+}
+
+fn endpoint_from_base(base: &str, path: &str) -> String {
+	format!("{}{}", base, path)
 }
 
 fn parse_bool_env(key: &str, default: bool) -> bool {
@@ -139,32 +192,48 @@ mod tests {
 		let _guard = env_lock();
 		env::set_var("STATS_FREQUENCY", "0");
 		env::set_var("STATS_MAX_CONCURRENCY", "9999");
-		env::set_var("LOGS_MAX_BYTES", "1");
 		let cfg = Config::from_env();
 		assert_eq!(cfg.stats_frequency.as_secs(), 1);
 		assert_eq!(cfg.stats_max_concurrency, 512);
-		assert_eq!(cfg.logs_max_bytes, 4096);
 		env::remove_var("STATS_FREQUENCY");
 		env::remove_var("STATS_MAX_CONCURRENCY");
-		env::remove_var("LOGS_MAX_BYTES");
 	}
 
 	#[test]
-	fn to_info_json_reflects_config() {
-		let cfg = Config {
-			stats_frequency: Duration::from_secs(42),
-			event_endpoint: "http://events".into(),
-			health_check_endpoint: "http://health".into(),
-			debug_event: true,
-			debug_stats: false,
-			stats_max_concurrency: 16,
-			logs_max_bytes: 8192,
-		};
-		let info = cfg.to_info_json();
-		assert_eq!(info.stats_frequency, 42);
-		assert_eq!(info.event_endpoint, "http://events");
-		assert_eq!(info.healthcheck_endpoint, "http://health");
-		assert!(info.debug.event);
-		assert!(!info.debug.stats);
+	fn agent_mode_parsing() {
+		assert_eq!(parse_agent_mode("auto"), AgentMode::Auto);
+		assert_eq!(parse_agent_mode("Docker"), AgentMode::Docker);
+		assert_eq!(parse_agent_mode("swarm"), AgentMode::Docker);
+		assert_eq!(parse_agent_mode("kubernetes"), AgentMode::Kubernetes);
+		assert_eq!(parse_agent_mode("K3S"), AgentMode::Kubernetes);
+		assert_eq!(parse_agent_mode("nonsense"), AgentMode::Auto);
+	}
+
+	#[test]
+	fn kubelet_mode_parsing() {
+		assert_eq!(parse_kubelet_mode("proxy"), KubeletMode::Proxy);
+		assert_eq!(parse_kubelet_mode("direct"), KubeletMode::Direct);
+		assert_eq!(parse_kubelet_mode(""), KubeletMode::Direct);
+	}
+
+	#[test]
+	fn base_url_prefers_sw4rm_bot_url() {
+		let _guard = env_lock();
+		env::set_var("SW4RM_BOT_URL", "http://swarmbot:9999/");
+		env::set_var("SWARMBOTY_URL", "http://legacy:1111");
+		let cfg = Config::from_env();
+		assert_eq!(cfg.event_endpoint, "http://swarmbot:9999/events");
+		assert_eq!(cfg.health_check_endpoint, "http://swarmbot:9999/version");
+		env::remove_var("SW4RM_BOT_URL");
+		let cfg = Config::from_env();
+		assert_eq!(cfg.event_endpoint, "http://legacy:1111/events");
+		env::remove_var("SWARMBOTY_URL");
+	}
+
+	#[test]
+	fn non_empty_trims_and_filters() {
+		assert_eq!(non_empty(Some("  ".into())), None);
+		assert_eq!(non_empty(Some(" x ".into())), Some("x".to_string()));
+		assert_eq!(non_empty(None), None);
 	}
 }

@@ -1,0 +1,125 @@
+# swarmagent — per-node monitoring agent for sw4rm.bot on Kubernetes / k3s.
+#
+# The agent is push-only: it exposes no ports and only POSTs stats/events to
+# the sw4rm.bot API (SW4RM_BOT_URL). One pod runs on every node (DaemonSet).
+#
+# Apply with:
+#   kubectl apply -f deploy/k8s/swarmagent.yaml
+# and set SW4RM_BOT_URL below to the reachable sw4rm.bot API base URL.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: swarmboty
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: swarmagent
+  namespace: swarmboty
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: swarmagent
+rules:
+  # Node identity, capacity, and addresses.
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+  # kubelet Summary API: direct (nodes/stats) and API-server proxy (nodes/proxy).
+  - apiGroups: [""]
+    resources: ["nodes/stats", "nodes/proxy"]
+    verbs: ["get"]
+  # Pod list (limits, workload owners) and the per-node pod watch (events).
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: swarmagent
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: swarmagent
+subjects:
+  - kind: ServiceAccount
+    name: swarmagent
+    namespace: swarmboty
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: swarmagent
+  namespace: swarmboty
+  labels:
+    app.kubernetes.io/name: swarmagent
+    app.kubernetes.io/part-of: swarmboty
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: swarmagent
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: swarmagent
+    spec:
+      serviceAccountName: swarmagent
+      # Monitor control-plane nodes too (k3s servers are schedulable by
+      # default, but keep the tolerations for hardened clusters).
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+          effect: NoSchedule
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+      containers:
+        - name: swarmagent
+          image: ghcr.io/dcniko/swarmagent:latest
+          env:
+            # sw4rm.bot API base URL — adjust to your deployment
+            # (in-cluster Service, Ingress, or external URL).
+            - name: SW4RM_BOT_URL
+              value: "http://swarmboty-app.swarmboty.svc.cluster.local:8080"
+            # Explicit mode is optional (auto-detection finds the
+            # ServiceAccount), but makes the intent obvious.
+            - name: AGENT_MODE
+              value: "kubernetes"
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: NODE_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+            # k3s kubelets serve a self-signed certificate; keep the direct
+            # Summary API call working. Set to "false" (or AGENT_KUBELET_MODE
+            # to "proxy") on clusters with a proper kubelet serving CA.
+            - name: AGENT_KUBELET_INSECURE_TLS
+              value: "true"
+            - name: STATS_FREQUENCY
+              value: "30"
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 200m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]

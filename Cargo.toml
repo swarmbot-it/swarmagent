@@ -1,6 +1,6 @@
 ﻿[package]
 name = "swarmagent"
-version = "0.1.0"
+version = "0.1.2"
 edition = "2021"
 description = "Lightweight Swarmboty Docker agent (Rust)"
 license = "MIT"
@@ -9,12 +9,11 @@ rust-version = "1.86"
 
 [dependencies]
 anyhow = "1"
-axum = { version = "0.7", default-features = false, features = ["json", "tokio", "http1", "query", "macros"] }
+async-trait = "0.1"
 bollard = "0.18"
-bytes = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sysinfo = "0.32"

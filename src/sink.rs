@@ -73,20 +73,34 @@ impl Sink {
 		});
 		let payload = serde_json::to_vec(&body).context("serialize outbound event")?;
 
-		if self.cfg.debug_event && ty == "event" {
-			tracing::debug!(target: "swarmagent", body = %String::from_utf8_lossy(&payload), "Docker event");
+		let debug_payload = match ty {
+			"event" => self.cfg.debug_event,
+			"stats" => self.cfg.debug_stats,
+			_ => false,
+		};
+		if debug_payload {
+			tracing::debug!(target: "swarmagent", event_type = %ty, body = %String::from_utf8_lossy(&payload), "outbound payload");
 		}
-		if self.cfg.debug_stats && ty == "stats" {
-			tracing::debug!(target: "swarmagent", body = %String::from_utf8_lossy(&payload), "Host stats");
-		}
-
-		self.client
+		let resp = self
+			.client
 			.post(&self.cfg.event_endpoint)
 			.header(CONTENT_TYPE, JSON_UTF8)
 			.body(payload)
 			.send()
 			.await
 			.context("POST event to Swarmboty")?;
+		if !resp.status().is_success() {
+			let status = resp.status();
+			let body = resp.text().await.unwrap_or_default();
+			error!(
+				%status,
+				endpoint = %self.cfg.event_endpoint,
+				body = %body,
+				event_type = %ty,
+				"Swarmboty rejected event"
+			);
+			anyhow::bail!("Swarmboty returned {status}");
+		}
 		Ok(())
 	}
 }
