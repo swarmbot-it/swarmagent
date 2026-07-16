@@ -1,7 +1,5 @@
-@Library('jenkins-shared') _
-
 pipeline {
-    agent any
+    agent { label 'docker' }
 
     options {
         timestamps()
@@ -9,54 +7,54 @@ pipeline {
         buildDiscarder(logRotator(numToKeepStr: '30'))
     }
 
-    parameters {
-        choice(name: 'ACTION', choices: ['', 'CI', 'BUILD', 'DEPLOY', 'BUILD_AND_DEPLOY'], description: 'Empty value enables automatic PR/main branch behavior.')
-        choice(name: 'TARGET_ENV', choices: ['DEV', 'TST'], description: 'Standard job can deploy only to DEV or TST.')
-        string(name: 'IMAGE_TAG', defaultValue: '', description: 'Existing image tag for deploy-only runs.')
-        string(name: 'RELEASE_VERSION', defaultValue: '', description: 'Optional release version for image tagging. Empty uses BUILD_NUMBER.')
-        booleanParam(name: 'SKIP_TESTS', defaultValue: false, description: 'Skip cargo test in CI (fmt and clippy still run).')
-        booleanParam(name: 'RUN_LLM_REVIEW', defaultValue: true, description: 'Run OpenAI-compatible local LLM review for PR/MR builds.')
-    }
-
     environment {
-        INTERNAL_REGISTRY = 'registry.debian.dc4.pl'
-        IMAGE_NAMESPACE = 'swarmbotty'
-        REGISTRY_CREDENTIALS_ID = 'swarm-jenkins'
-        SWARM_MANAGER = 'debian@debian.dc4.pl'
-        SWARM_DEV_STACK = 'swarmbotty-dev'
-        SWARM_TST_STACK = 'swarmbotty-tst'
+        IMAGE = 'ghcr.io/swarmbot-it/swarmagent'
+        REGISTRY_CREDENTIALS_ID = 'nh-jenkins-github-app-swarmbot'
     }
 
     stages {
-        stage('CI') {
-            when {
-                anyOf {
-                    changeRequest()
-                    expression { !params.ACTION || params.ACTION == 'CI' || params.ACTION == 'BUILD_AND_DEPLOY' || params.ACTION == 'BUILD' }
+        stage('Test') {
+            when { changeRequest() }
+            steps {
+                script {
+                    // fmt/clippy are enforced by the GitHub Actions CI workflow; the official
+                    // rust image ships the minimal profile without rustfmt/clippy.
+                    docker.image('rust:1.88-bookworm')
+                          .inside("-e HOME=${env.WORKSPACE} -e CARGO_HOME=${env.WORKSPACE}/.cargo") {
+                        sh 'cargo test --release --locked'
+                    }
                 }
             }
+        }
+
+        stage('Build image') {
             steps {
-                rustCI()
+                script {
+                    String shortSha = (env.GIT_COMMIT ?: 'dev').take(7)
+                    env.IMAGE_TAG = "${env.BUILD_NUMBER}-${shortSha}"
+                    docker.build(
+                        "${env.IMAGE}:${env.IMAGE_TAG}",
+                        "--label org.opencontainers.image.source=https://github.com/swarmbot-it/swarmagent" +
+                        " --label org.opencontainers.image.revision=${env.GIT_COMMIT ?: ''} ."
+                    )
+                }
             }
         }
 
-        stage('Build') {
-            when {
-                not { changeRequest() }
-                expression { (!params.ACTION && env.BRANCH_NAME == 'main') || params.ACTION == 'BUILD' || params.ACTION == 'BUILD_AND_DEPLOY' }
-            }
+        // Publishing happens only from main - PR builds stop at test + image build.
+        stage('Push to GHCR') {
+            when { branch 'main' }
             steps {
-                rustBuild()
-            }
-        }
-
-        stage('Deploy') {
-            when {
-                not { changeRequest() }
-                expression { (!params.ACTION && env.BRANCH_NAME == 'main') || params.ACTION == 'DEPLOY' || params.ACTION == 'BUILD_AND_DEPLOY' }
-            }
-            steps {
-                rustDeploy(params.TARGET_ENV ?: 'DEV')
+                script {
+                    docker.withRegistry('https://ghcr.io', env.REGISTRY_CREDENTIALS_ID) {
+                        def image = docker.image("${env.IMAGE}:${env.IMAGE_TAG}")
+                        image.push()
+                        image.push('latest')
+                    }
+                    writeFile file: 'image.txt', text: "${env.IMAGE}:${env.IMAGE_TAG}\n"
+                    archiveArtifacts artifacts: 'image.txt'
+                    echo "Pushed ${env.IMAGE}:${env.IMAGE_TAG} and ${env.IMAGE}:latest"
+                }
             }
         }
     }
