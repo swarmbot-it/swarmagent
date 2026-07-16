@@ -1,69 +1,69 @@
 mod config;
 mod container_stats;
+mod detect;
 mod host;
 mod models;
+mod provider;
 mod sink;
 mod tasks;
-mod web;
 
-use std::net::SocketAddr;
 use std::sync::Arc;
 
-use anyhow::Context;
-use bollard::Docker;
 use tracing::info;
 
 use crate::config::Config;
+use crate::provider::Provider;
 use crate::sink::{build_http_client, Sink};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
-        .init();
+	tracing_subscriber::fmt()
+		.with_env_filter(
+			tracing_subscriber::EnvFilter::try_from_default_env()
+				.unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+		)
+		.init();
 
-    let config = Arc::new(Config::from_env());
-    let http = Arc::new(build_http_client()?);
+	let config = Arc::new(Config::from_env());
+	let http = build_http_client()?;
 
-    let docker = Docker::connect_with_local_defaults()
-        .context("Docker client (check DOCKER_HOST / socket)")?
-        .negotiate_version()
-        .await
-        .context("Docker API version negotiation")?;
+	let mode = detect::resolve(config.agent_mode, detect::in_cluster());
+	info!(mode = mode.as_str(), "Orchestrator resolved");
 
-    info!("Waiting for Swarmbot…");
-    let sink = Sink::new(config.clone(), (*http).clone());
-    sink.wait_for_health().await;
+	let provider: Arc<dyn Provider> = match mode {
+		detect::Mode::Docker => {
+			Arc::new(provider::docker::DockerProvider::connect(config.clone()).await?)
+		}
+		detect::Mode::Kubernetes => Arc::new(provider::kubernetes::KubernetesProvider::from_env(
+			config.clone(),
+		)?),
+	};
 
-    let sink = Arc::new(sink);
+	info!(orchestrator = provider.orchestrator(), "Provider ready");
 
-    tokio::spawn(tasks::events::run(docker.clone(), sink.clone()));
-    info!("Event collector started.");
+	info!("Waiting for Swarmboty…");
+	let sink = Sink::new(config.clone(), http);
+	sink.wait_for_health().await;
 
-    tokio::spawn(tasks::stats::run(
-        docker.clone(),
-        sink.clone(),
-        config.clone(),
-    ));
-    info!("Stats collector started.");
+	let sink = Arc::new(sink);
 
-    let state = web::AppState {
-        docker,
-        config: config.clone(),
-    };
+	{
+		let provider = provider.clone();
+		let sink = sink.clone();
+		tokio::spawn(async move { provider.run_events(sink).await });
+	}
+	info!("Event collector started.");
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:8080")
-        .await
-        .context("bind :8080")?;
-    info!("Swarmbot agent listening on port 8080");
-    axum::serve(
-        listener,
-        web::router(state).into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .await
-    .context("HTTP server")?;
-    Ok(())
+	tokio::spawn(tasks::stats::run(
+		provider.clone(),
+		sink.clone(),
+		config.clone(),
+	));
+	info!("Stats collector started.");
+
+	// Push-only agent: no listening sockets. Park the main task until the
+	// process is asked to stop.
+	tokio::signal::ctrl_c().await?;
+	info!("Shutdown signal received; exiting.");
+	Ok(())
 }
