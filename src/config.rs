@@ -132,7 +132,7 @@ fn trim_trailing_slash(url: &str) -> String {
 }
 
 fn endpoint_from_base(base: &str, path: &str) -> String {
-	format!("{}{}", base, path)
+	format!("{base}{path}")
 }
 
 fn parse_bool_env(key: &str, default: bool) -> bool {
