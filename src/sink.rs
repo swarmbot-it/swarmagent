@@ -81,10 +81,14 @@ impl Sink {
 		if debug_payload {
 			tracing::debug!(target: "swarmagent", event_type = %ty, body = %String::from_utf8_lossy(&payload), "outbound payload");
 		}
-		let resp = self
+		let mut req = self
 			.client
 			.post(&self.cfg.event_endpoint)
-			.header(CONTENT_TYPE, JSON_UTF8)
+			.header(CONTENT_TYPE, JSON_UTF8);
+		if let Some(token) = &self.cfg.shared_secret {
+			req = req.header("X-Agent-Token", token.as_str());
+		}
+		let resp = req
 			.body(payload)
 			.send()
 			.await
