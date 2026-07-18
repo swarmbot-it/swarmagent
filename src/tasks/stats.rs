@@ -2,7 +2,7 @@
 //!
 //! On every tick the configured [`Provider`] assembles a full
 //! [`crate::models::Status`] snapshot (node identity, host CPU/memory/disk,
-//! per-container statistics) which is forwarded to Swarmboty as a `stats`
+//! per-container statistics) which is forwarded to Swarmbot as a `stats`
 //! event.
 
 use std::sync::Arc;
@@ -36,7 +36,7 @@ pub async fn run(provider: Arc<dyn Provider>, sink: Arc<Sink>, cfg: Arc<Config>)
 }
 
 /// Performs a single stats tick: collects the snapshot from the provider and
-/// posts it to Swarmboty.
+/// posts it to Swarmbot.
 async fn tick(provider: &dyn Provider, sink: &Sink) -> anyhow::Result<()> {
 	let status = provider.status().await?;
 	sink.post_event("stats", &status).await

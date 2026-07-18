@@ -51,7 +51,7 @@ Docker Engine ──(bollard, unix socket)──► swarmagent ──(HTTP POST 
 | Moduł | Rola |
 |---|---|
 | `src/main.rs` | bootstrap: klient Docker, health-check swarmbota, spawn tasków, **serwer axum :8080** |
-| `src/config.rs` | konfiguracja z env (`SWARMBOTY_URL`, `EVENT_ENDPOINT`, `STATS_FREQUENCY`, …) |
+| `src/config.rs` | konfiguracja z env (`SWARMBOT_URL`, `EVENT_ENDPOINT`, `STATS_FREQUENCY`, …) |
 | `src/sink.rs` | `Sink::post_event(type, message)` — koperta `{"type": ..., "message": ...}` POST-owana na `/events` |
 | `src/tasks/events.rs` | strumień `docker events` (filtrowane typy) → `post_event("event", msg)` |
 | `src/tasks/stats.rs` | tick co `STATS_FREQUENCY`: `docker info/version` + sysinfo (CPU/RAM/dysk hosta) + `docker stats` per kontener → `post_event("stats", Status)` |
@@ -69,7 +69,7 @@ Fakty istotne dla zakresu zmian (zweryfikowane w kodzie swarmbota):
   nieużywana** — swarmbot nie woła dziś HTTP API agenta. Usunięcie serwera axum
   nie łamie więc żadnej istniejącej funkcji swarmbota.
 - Rozjazd nazw env: pliki compose swarmbota ustawiają `SW4RM_BOT_URL`, a agent czyta
-  `SWARMBOTY_URL` (działa tylko dzięki zbieżnemu defaultowi `http://app:8080`).
+  `SWARMBOT_URL` (działa tylko dzięki zbieżnemu defaultowi `http://app:8080`).
   Do ujednolicenia w Fazie 0.
 
 ## 3. Architektura docelowa
@@ -167,7 +167,7 @@ Fazy 0–3 są kompletne i wdrażalne bez tego kanału — dlatego jest wydzielo
 1. Usunąć `src/web.rs`, serwer axum z `main.rs`, deps `axum`/`bytes`, `EXPOSE 8080`
    z Dockerfile, sekcję „HTTP API” z README; usunąć `logs_max_bytes` z `Config`.
 2. Ujednolicić env bazowego URL-a: czytać `SW4RM_BOT_URL` **oraz** (dla zgodności)
-   `SWARMBOTY_URL`; zaktualizować README i compose w swarmbocie.
+   `SWARMBOT_URL`; zaktualizować README i compose w swarmbocie.
 3. `main.rs`: po spawnach `ctrl_c().await` zamiast `axum::serve`.
 4. Testy: `cargo test` — usunąć/przenieść testy `web.rs` (parse_since itd. znikają).
 
@@ -278,7 +278,7 @@ podjąć po wdrożeniu k3s (na k8s logi idą przez apiserver po stronie swarmbot
 | Zmienna | Default | Opis |
 |---|---|---|
 | `AGENT_MODE` | `auto` | `auto` / `docker` / `kubernetes` |
-| `SW4RM_BOT_URL` (alias: `SWARMBOTY_URL`) | `http://app:8080` | baza URL swarmbota; z niej `/events` i `/version` |
+| `SW4RM_BOT_URL` (alias: `SWARMBOT_URL`) | `http://app:8080` | baza URL swarmbota; z niej `/events` i `/version` |
 | `EVENT_ENDPOINT`, `HEALTH_CHECK_ENDPOINT` | pochodne bazy | jak dotychczas (nadpisania) |
 | `STATS_FREQUENCY` | `30` | jak dotychczas |
 | `STATS_MAX_CONCURRENCY` | `32` | tylko tryb Docker |

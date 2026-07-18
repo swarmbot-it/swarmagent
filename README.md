@@ -1,6 +1,6 @@
 # swarmagent
 
-Lightweight [Swarmboty](https://github.com/dcniko/swarmboty) monitoring agent written in Rust. It runs on **Docker Swarm** (or a standalone Docker Engine) and on **Kubernetes / k3s**, auto-detecting the orchestrator at startup. The agent is **push-only**: it exposes no ports and only sends events and periodic host/container stats to the Swarmboty application.
+Lightweight [Swarmbot](https://github.com/dcniko/swarmbot) monitoring agent written in Rust. It runs on **Docker Swarm** (or a standalone Docker Engine) and on **Kubernetes / k3s**, auto-detecting the orchestrator at startup. The agent is **push-only**: it exposes no ports and only sends events and periodic host/container stats to the Swarmbot application.
 
 ## Requirements
 
@@ -38,7 +38,7 @@ docker run -d \
   ghcr.io/dcniko/swarmagent:latest
 ```
 
-No ports are published — the agent only makes outbound HTTP calls to Swarmboty.
+No ports are published — the agent only makes outbound HTTP calls to Swarmbot.
 
 Build the static image locally:
 
@@ -54,16 +54,16 @@ Deploy the DaemonSet with RBAC (one agent per node):
 kubectl apply -f deploy/k8s/swarmagent.yaml
 ```
 
-Edit `SW4RM_BOT_URL` in the manifest to point at your Swarmboty API. The manifest grants the ServiceAccount read access to `nodes`, `nodes/stats`, `nodes/proxy`, and `pods`, and passes `NODE_NAME`/`NODE_IP` via the Downward API. In Kubernetes mode the agent does not need the Docker socket or root.
+Edit `SW4RM_BOT_URL` in the manifest to point at your Swarmbot API. The manifest grants the ServiceAccount read access to `nodes`, `nodes/stats`, `nodes/proxy`, and `pods`, and passes `NODE_NAME`/`NODE_IP` via the Downward API. In Kubernetes mode the agent does not need the Docker socket or root.
 
 ## Environment variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `AGENT_MODE` | `auto` | `auto`, `docker`, or `kubernetes` |
-| `SW4RM_BOT_URL` (alias `SWARMBOTY_URL`) | `http://app:8080` | Swarmboty base URL; `/events` and `/version` are derived from it |
+| `SW4RM_BOT_URL` (alias `SWARMBOT_URL`) | `http://app:8080` | Swarmbot base URL; `/events` and `/version` are derived from it |
 | `EVENT_ENDPOINT` | `<base>/events` | Override for the events ingest URL |
-| `HEALTH_CHECK_ENDPOINT` | `<base>/version` | URL polled every 5s until Swarmboty is up |
+| `HEALTH_CHECK_ENDPOINT` | `<base>/version` | URL polled every 5s until Swarmbot is up |
 | `STATS_FREQUENCY` | `30` | Seconds between stats payloads (first sample is sent immediately on startup) |
 | `STATS_MAX_CONCURRENCY` | `32` | Docker mode: max parallel `docker stats` calls per tick |
 | `NODE_NAME` | — | Kubernetes mode (**required**): node name via Downward API (`fieldRef: spec.nodeName`) |
@@ -84,7 +84,7 @@ previous agent versions.
 
 ## Resource profile
 
-Release builds use **LTO**, **single codegen unit**, **strip**, and **`panic = "abort"`** (see `Cargo.toml`). The Docker image is **`scratch`** with a **musl**-linked static binary. A single `reqwest::Client` is reused for Swarmboty HTTP calls; Kubernetes mode uses the same `reqwest` stack (no heavyweight Kubernetes client dependency).
+Release builds use **LTO**, **single codegen unit**, **strip**, and **`panic = "abort"`** (see `Cargo.toml`). The Docker image is **`scratch`** with a **musl**-linked static binary. A single `reqwest::Client` is reused for Swarmbot HTTP calls; Kubernetes mode uses the same `reqwest` stack (no heavyweight Kubernetes client dependency).
 
 ## Development
 

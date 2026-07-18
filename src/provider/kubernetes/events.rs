@@ -21,7 +21,7 @@ use std::collections::{BTreeMap, HashMap};
 use serde::Serialize;
 use serde_json::Value;
 
-/// Container lifecycle event pushed to Swarmboty (Docker-envelope-compatible).
+/// Container lifecycle event pushed to Swarmbot (Docker-envelope-compatible).
 #[derive(Debug, Serialize)]
 pub struct AgentEvent {
 	/// Always `"container"`.

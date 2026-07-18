@@ -41,7 +41,7 @@ async fn main() -> anyhow::Result<()> {
 
 	info!(orchestrator = provider.orchestrator(), "Provider ready");
 
-	info!("Waiting for Swarmboty…");
+	info!("Waiting for Swarmbot…");
 	let sink = Sink::new(config.clone(), http);
 	sink.wait_for_health().await;
 
