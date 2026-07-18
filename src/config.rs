@@ -60,7 +60,7 @@ pub struct Config {
 	pub kubelet_insecure_tls: bool,
 	/// Kubelet access mode. `AGENT_KUBELET_MODE` env (`direct`/`proxy`), default `direct`.
 	pub kubelet_mode: KubeletMode,
-	/// Shared secret sent as `X-Agent-Token` on every request to Swarmboty.
+	/// Shared secret sent as `X-Agent-Token` on every request to Swarmbot.
 	/// `SWARMAGENT_SHARED_SECRET` env. Opt-in: unset means no token is sent,
 	/// matching the previous behavior.
 	pub shared_secret: Option<String>,
@@ -118,14 +118,12 @@ fn get_string(key: &str, default: &str) -> String {
 
 /// Base URL of the Swarmbot app.
 ///
-/// Read from `SW4RM_BOT_URL` (name used by the swarmbot compose files) or the
-/// `SWARMBOT_URL` alias; otherwise derived from `EVENT_ENDPOINT`.
+/// Read from `SWARMBOT_URL` (name used by the swarmbot compose files);
+/// otherwise derived from `EVENT_ENDPOINT`.
 fn swarmbot_base_url() -> String {
-	for key in ["SW4RM_BOT_URL", "SWARMBOT_URL"] {
-		let direct = get_string(key, "");
-		if !direct.is_empty() {
-			return trim_trailing_slash(&direct);
-		}
+	let direct = get_string("SWARMBOT_URL", "");
+	if !direct.is_empty() {
+		return trim_trailing_slash(&direct);
 	}
 	let event = get_string("EVENT_ENDPOINT", "http://app:8080/events");
 	let base = event.strip_suffix("/events").unwrap_or(event.as_str());
@@ -222,16 +220,12 @@ mod tests {
 	}
 
 	#[test]
-	fn base_url_prefers_sw4rm_bot_url() {
+	fn base_url_reads_swarmbot_url() {
 		let _guard = env_lock();
-		env::set_var("SW4RM_BOT_URL", "http://swarmbot:9999/");
-		env::set_var("SWARMBOT_URL", "http://legacy:1111");
+		env::set_var("SWARMBOT_URL", "http://swarmbot:6666/");
 		let cfg = Config::from_env();
-		assert_eq!(cfg.event_endpoint, "http://swarmbot:9999/events");
-		assert_eq!(cfg.health_check_endpoint, "http://swarmbot:9999/version");
-		env::remove_var("SW4RM_BOT_URL");
-		let cfg = Config::from_env();
-		assert_eq!(cfg.event_endpoint, "http://legacy:1111/events");
+		assert_eq!(cfg.event_endpoint, "http://swarmbot:6666/events");
+		assert_eq!(cfg.health_check_endpoint, "http://swarmbot:6666/version");
 		env::remove_var("SWARMBOT_URL");
 	}
 

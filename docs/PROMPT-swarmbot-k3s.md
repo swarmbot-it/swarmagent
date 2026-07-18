@@ -6,7 +6,7 @@
 
 ---
 
-Celem jest rozszerzenie sw4rm.bot (Node.js monorepo: `apps/api` — Express + Apollo
+Celem jest rozszerzenie swarmbot (Node.js monorepo: `apps/api` — Express + Apollo
 GraphQL + Dockerode, `apps/web` — Angular) o obsługę klastrów **k3s (Kubernetes)**
 analogicznie do istniejącej obsługi **Docker Swarm**. Aplikacja ma **automatycznie
 wykrywać**, na jakiej infrastrukturze działa, i używać właściwego backendu. Towarzyszący
@@ -26,7 +26,7 @@ z auto-detekcją Swarm/k8s — patrz sekcja „Kontrakt z agentem” niżej.
 - `apps/api/src/server.ts` — `POST /events` (ingest od agenta), `GET /events` (SSE),
   hub zdarzeń w `events/hub.ts`.
 - `apps/api/src/docker/cli.ts` — `docker stack deploy` przez CLI.
-- Mock mode (`SW4RM_BOT_MOCK=true`) z `docker/mock.ts` — używany w testach i demo.
+- Mock mode (`SWARMBOT_MOCK=true`) z `docker/mock.ts` — używany w testach i demo.
 
 ## Wymagania
 
@@ -42,7 +42,7 @@ sieci/wolumenów (tam gdzie ma sens), inspekcja, logi, deploy, zdarzenia. Wydzie
 
 Mapowanie pojęć (ujednolicony model domenowy dla GraphQL/UI):
 
-| Model sw4rm.bot | Docker Swarm | Kubernetes/k3s |
+| Model swarmbot | Docker Swarm | Kubernetes/k3s |
 |---|---|---|
 | Node | swarm node | `v1.Node` (rola z labeli `node-role.kubernetes.io/*`) |
 | Service | swarm service | Deployment / StatefulSet / DaemonSet (workload) |
@@ -55,13 +55,13 @@ Mapowanie pojęć (ujednolicony model domenowy dla GraphQL/UI):
 
 W `createHttpServer` (lub nowym `orchestrator/factory.ts`):
 
-1. `SW4RM_BOT_ORCHESTRATOR=swarm|kubernetes|auto` (default `auto`; `SW4RM_BOT_MOCK`
+1. `SWARMBOT_ORCHESTRATOR=swarm|kubernetes|auto` (default `auto`; `SWARMBOT_MOCK`
    nadal wymusza mock).
 2. Tryb `auto`:
    - in-cluster ServiceAccount (`/var/run/secrets/kubernetes.io/serviceaccount/token` +
      `KUBERNETES_SERVICE_HOST`) lub dostępny kubeconfig (`KUBECONFIG` /
-     `SW4RM_BOT_KUBECONFIG`) → **kubernetes**;
-   - w przeciwnym razie działający socket Dockera (`SW4RM_BOT_DOCKER_SOCK`) → **swarm**;
+     `SWARMBOT_KUBECONFIG`) → **kubernetes**;
+   - w przeciwnym razie działający socket Dockera (`SWARMBOT_DOCKER_SOCK`) → **swarm**;
    - żaden → czytelny błąd startu (z podpowiedzią konfiguracji).
 3. Wykryty tryb wyeksponuj w `GET /version` oraz w GraphQL (np. `clusterInfo.orchestrator`).
 
@@ -89,7 +89,7 @@ Zadania:
 ### 4. Agent bez portów — konsekwencje
 
 - Agent nie wystawia już żadnego HTTP (usuwane są jego `/logs` i `/inspect`).
-  Zmienna `SW4RM_BOT_AGENT_URL` jest dziś i tak nieużywana — usuń ją z configu albo
+  Zmienna `SWARMBOT_AGENT_URL` jest dziś i tak nieużywana — usuń ją z configu albo
   oznacz jako deprecated.
 - Logi i inspect w trybie k8s realizuj przez kube-apiserver (adapter z pkt 1).
 - (Opcjonalnie, osobny etap) endpoint `GET /agent/ws` — kanał zwrotny WebSocket
@@ -109,10 +109,10 @@ Zadania:
 
 ### 6. Konfiguracja, mock, testy, dokumentacja
 
-- Config: `SW4RM_BOT_ORCHESTRATOR`, `SW4RM_BOT_KUBECONFIG`, ew. `SW4RM_BOT_K8S_NAMESPACE`
+- Config: `SWARMBOT_ORCHESTRATOR`, `SWARMBOT_KUBECONFIG`, ew. `SWARMBOT_K8S_NAMESPACE`
   (filtr; default: wszystkie).
 - Mock: dodaj `orchestrator/kubernetes/mock.ts` (przykładowe nodes/deploymenty/pody),
-  przełączany env `SW4RM_BOT_MOCK_ORCHESTRATOR=kubernetes` — potrzebny do testów UI.
+  przełączany env `SWARMBOT_MOCK_ORCHESTRATOR=kubernetes` — potrzebny do testów UI.
 - Testy: Vitest dla detekcji, adaptera k8s (mock klienta), `kube-mapper`, rozszerzonego
   ingestu; e2e Playwright dla widoków w trybie mock-k8s.
 - Dev-infra: skrypt `npm run k3d:start|stop` (analogicznie do `swarm:start`) stawiający
@@ -122,7 +122,7 @@ Zadania:
 
 ### Kryteria akceptacji
 
-1. Ta sama binarka/obraz sw4rm.bot działa na Swarm i na k3s bez zmiany konfiguracji
+1. Ta sama binarka/obraz swarmbot działa na Swarm i na k3s bez zmiany konfiguracji
    poza dostępem do API (socket vs ServiceAccount/kubeconfig).
 2. Na k3s: lista węzłów, workloadów, podów i namespace'ów widoczna w UI; metryki z
    agenta (DaemonSet) na dashboardzie; logi poda dostępne z UI.

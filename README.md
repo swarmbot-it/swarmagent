@@ -1,6 +1,6 @@
 # swarmagent
 
-Lightweight [Swarmbot](https://github.com/dcniko/swarmbot) monitoring agent written in Rust. It runs on **Docker Swarm** (or a standalone Docker Engine) and on **Kubernetes / k3s**, auto-detecting the orchestrator at startup. The agent is **push-only**: it exposes no ports and only sends events and periodic host/container stats to the Swarmbot application.
+Lightweight [Swarmbot](https://github.com/swarmbot-it/swarmbot) monitoring agent written in Rust. It runs on **Docker Swarm** (or a standalone Docker Engine) and on **Kubernetes / k3s**, auto-detecting the orchestrator at startup. The agent is **push-only**: it exposes no ports and only sends events and periodic host/container stats to the Swarmbot application.
 
 ## Requirements
 
@@ -34,8 +34,8 @@ Every payload carries `orchestrator: "swarm" \| "kubernetes"`.
 docker run -d \
   --name swarmagent \
   -v /var/run/docker.sock:/var/run/docker.sock:ro \
-  -e SW4RM_BOT_URL=http://app:8080 \
-  ghcr.io/dcniko/swarmagent:latest
+  -e SWARMBOT_URL=http://app:8080 \
+  ghcr.io/swarmbot-it/swarmagent:latest
 ```
 
 No ports are published — the agent only makes outbound HTTP calls to Swarmbot.
@@ -54,14 +54,14 @@ Deploy the DaemonSet with RBAC (one agent per node):
 kubectl apply -f deploy/k8s/swarmagent.yaml
 ```
 
-Edit `SW4RM_BOT_URL` in the manifest to point at your Swarmbot API. The manifest grants the ServiceAccount read access to `nodes`, `nodes/stats`, `nodes/proxy`, and `pods`, and passes `NODE_NAME`/`NODE_IP` via the Downward API. In Kubernetes mode the agent does not need the Docker socket or root.
+Edit `SWARMBOT_URL` in the manifest to point at your Swarmbot API. The manifest grants the ServiceAccount read access to `nodes`, `nodes/stats`, `nodes/proxy`, and `pods`, and passes `NODE_NAME`/`NODE_IP` via the Downward API. In Kubernetes mode the agent does not need the Docker socket or root.
 
 ## Environment variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `AGENT_MODE` | `auto` | `auto`, `docker`, or `kubernetes` |
-| `SW4RM_BOT_URL` (alias `SWARMBOT_URL`) | `http://app:8080` | Swarmbot base URL; `/events` and `/version` are derived from it |
+| `SWARMBOT_URL` | `http://app:8080` | Swarmbot base URL; `/events` and `/version` are derived from it |
 | `EVENT_ENDPOINT` | `<base>/events` | Override for the events ingest URL |
 | `HEALTH_CHECK_ENDPOINT` | `<base>/version` | URL polled every 5s until Swarmbot is up |
 | `STATS_FREQUENCY` | `30` | Seconds between stats payloads (first sample is sent immediately on startup) |
