@@ -1,3 +1,7 @@
+// Build agents (label 'docker' -> k3s-w1/w2) need working container DNS:
+// /etc/docker/daemon.json must set a real "dns" (e.g. ["1.1.1.1","8.8.8.8"]),
+// otherwise image-build RUN steps inherit the host systemd-resolved stub
+// 127.0.0.53 (unreachable from the build network) and apk/apt installs fail.
 pipeline {
     agent { label 'docker' }
 
