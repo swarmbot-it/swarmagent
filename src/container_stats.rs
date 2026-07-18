@@ -1,7 +1,7 @@
 //! Container stats parsing — CPU, memory, network I/O, block I/O, PIDs.
 //!
 //! All formulas match the Docker CLI `docker stats` implementation so that
-//! the values displayed in Swarmboty are consistent with what operators see
+//! the values displayed in Swarmbot are consistent with what operators see
 //! on the command line.
 
 use bollard::container::{CPUStats, MemoryStats, MemoryStatsStats, Stats};

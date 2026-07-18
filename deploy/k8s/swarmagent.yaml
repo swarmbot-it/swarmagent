@@ -10,13 +10,13 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: swarmboty
+  name: swarmbot
 ---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: swarmagent
-  namespace: swarmboty
+  namespace: swarmbot
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -47,16 +47,16 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: swarmagent
-    namespace: swarmboty
+    namespace: swarmbot
 ---
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: swarmagent
-  namespace: swarmboty
+  namespace: swarmbot
   labels:
     app.kubernetes.io/name: swarmagent
-    app.kubernetes.io/part-of: swarmboty
+    app.kubernetes.io/part-of: swarmbot
 spec:
   selector:
     matchLabels:
@@ -91,7 +91,7 @@ spec:
             # sw4rm.bot API base URL — adjust to your deployment
             # (in-cluster Service, Ingress, or external URL).
             - name: SW4RM_BOT_URL
-              value: "http://swarmboty-app.swarmboty.svc.cluster.local:8080"
+              value: "http://swarmbot-app.swarmbot.svc.cluster.local:8080"
             # Explicit mode is optional (auto-detection finds the
             # ServiceAccount), but makes the intent obvious.
             - name: AGENT_MODE

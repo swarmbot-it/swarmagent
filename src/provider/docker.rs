@@ -25,7 +25,7 @@ use crate::models::{ContainerStatus, Status};
 use crate::provider::Provider;
 use crate::sink::Sink;
 
-/// Docker event types forwarded to Swarmboty.
+/// Docker event types forwarded to Swarmbot.
 ///
 /// Filtering here reduces noise from build/plugin events in active CI hosts.
 const RELEVANT_TYPES: &[&str] = &[

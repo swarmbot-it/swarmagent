@@ -2,9 +2,9 @@
 name = "swarmagent"
 version = "0.1.2"
 edition = "2021"
-description = "Lightweight Swarmboty Docker agent (Rust)"
+description = "Lightweight Swarmbot Docker agent (Rust)"
 license = "MIT"
-repository = "https://github.com/dcniko/swarmboty"
+repository = "https://github.com/dcniko/swarmbot"
 rust-version = "1.86"
 
 [dependencies]

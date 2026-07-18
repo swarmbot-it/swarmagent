@@ -3,7 +3,7 @@
 //! The stats tick lists the pods scheduled on this node once and derives,
 //! per pod: memory limits per container (for `memoryPercentage`) and the
 //! owning workload (Deployment/StatefulSet/DaemonSet/Job/…) reported to
-//! Swarmboty as `workload`/`workloadKind`.
+//! Swarmbot as `workload`/`workloadKind`.
 
 use std::collections::HashMap;
 
@@ -85,7 +85,7 @@ fn split_quantity(raw: &str) -> Option<(f64, f64)> {
 	Some((value, multiplier))
 }
 
-/// Maps a pod `ownerReference` to the workload shown in Swarmboty.
+/// Maps a pod `ownerReference` to the workload shown in Swarmbot.
 ///
 /// Pods owned by a ReplicaSet are reported as their Deployment: the
 /// ReplicaSet name is `<deployment>-<pod-template-hash>`, so the last

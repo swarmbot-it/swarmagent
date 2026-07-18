@@ -1,4 +1,4 @@
-//! Environment-driven configuration for the Swarmboty agent.
+//! Environment-driven configuration for the Swarmbot agent.
 //!
 //! All settings are read from environment variables at startup.
 //! Unset or invalid variables fall back to the documented defaults.
@@ -37,9 +37,9 @@ pub struct Config {
 	pub agent_mode: AgentMode,
 	/// How often to sample container statistics (minimum 1 s). `STATS_FREQUENCY` env, default 30 s.
 	pub stats_frequency: Duration,
-	/// URL of the Swarmboty `/events` endpoint. `EVENT_ENDPOINT` env.
+	/// URL of the Swarmbot `/events` endpoint. `EVENT_ENDPOINT` env.
 	pub event_endpoint: String,
-	/// URL used to poll until Swarmboty is ready. `HEALTH_CHECK_ENDPOINT` env.
+	/// URL used to poll until Swarmbot is ready. `HEALTH_CHECK_ENDPOINT` env.
 	pub health_check_endpoint: String,
 	/// When `true`, log each forwarded Docker event at `DEBUG` level. `DEBUG_EVENT` env.
 	pub debug_event: bool,
@@ -69,7 +69,7 @@ pub struct Config {
 impl Config {
 	/// Build a [`Config`] from the process environment.
 	pub fn from_env() -> Self {
-		let base = swarmboty_base_url();
+		let base = swarmbot_base_url();
 		Self {
 			agent_mode: parse_agent_mode(&get_string("AGENT_MODE", "auto")),
 			stats_frequency: Duration::from_secs(parse_u64_env("STATS_FREQUENCY", 30).max(1)),
@@ -116,12 +116,12 @@ fn get_string(key: &str, default: &str) -> String {
 	}
 }
 
-/// Base URL of the Swarmboty app.
+/// Base URL of the Swarmbot app.
 ///
 /// Read from `SW4RM_BOT_URL` (name used by the swarmbot compose files) or the
-/// legacy `SWARMBOTY_URL`; otherwise derived from `EVENT_ENDPOINT`.
-fn swarmboty_base_url() -> String {
-	for key in ["SW4RM_BOT_URL", "SWARMBOTY_URL"] {
+/// `SWARMBOT_URL` alias; otherwise derived from `EVENT_ENDPOINT`.
+fn swarmbot_base_url() -> String {
+	for key in ["SW4RM_BOT_URL", "SWARMBOT_URL"] {
 		let direct = get_string(key, "");
 		if !direct.is_empty() {
 			return trim_trailing_slash(&direct);
@@ -225,14 +225,14 @@ mod tests {
 	fn base_url_prefers_sw4rm_bot_url() {
 		let _guard = env_lock();
 		env::set_var("SW4RM_BOT_URL", "http://swarmbot:9999/");
-		env::set_var("SWARMBOTY_URL", "http://legacy:1111");
+		env::set_var("SWARMBOT_URL", "http://legacy:1111");
 		let cfg = Config::from_env();
 		assert_eq!(cfg.event_endpoint, "http://swarmbot:9999/events");
 		assert_eq!(cfg.health_check_endpoint, "http://swarmbot:9999/version");
 		env::remove_var("SW4RM_BOT_URL");
 		let cfg = Config::from_env();
 		assert_eq!(cfg.event_endpoint, "http://legacy:1111/events");
-		env::remove_var("SWARMBOTY_URL");
+		env::remove_var("SWARMBOT_URL");
 	}
 
 	#[test]

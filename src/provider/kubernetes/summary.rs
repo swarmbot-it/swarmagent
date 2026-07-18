@@ -7,7 +7,7 @@
 //! Known gaps versus Docker stats, accepted by design:
 //! - network counters exist per **pod**, not per container — they are
 //!   attributed to the pod's first container so cluster totals stay correct;
-//! - block I/O and PID counts are not exposed — reported as `0` (Swarmboty
+//! - block I/O and PID counts are not exposed — reported as `0` (Swarmbot
 //!   does not consume them today).
 
 use std::collections::HashMap;

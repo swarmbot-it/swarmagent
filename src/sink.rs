@@ -1,4 +1,4 @@
-//! HTTP sink — forwards JSON event payloads to Swarmboty's `/events` endpoint.
+//! HTTP sink — forwards JSON event payloads to Swarmbot's `/events` endpoint.
 //!
 //! [`Sink`] wraps a shared [`reqwest::Client`] and the agent configuration.
 //! All outbound requests are fire-and-forget: errors are logged but do not
@@ -16,7 +16,7 @@ use crate::config::Config;
 
 const JSON_UTF8: &str = "application/json; charset=utf-8";
 
-/// Shared HTTP client for forwarding events to Swarmboty.
+/// Shared HTTP client for forwarding events to Swarmbot.
 #[derive(Clone)]
 pub struct Sink {
 	cfg: Arc<Config>,
@@ -29,7 +29,7 @@ impl Sink {
 		Self { cfg, client }
 	}
 
-	/// Blocks until Swarmboty's health-check endpoint returns HTTP 2xx.
+	/// Blocks until Swarmbot's health-check endpoint returns HTTP 2xx.
 	///
 	/// Polls every 5 seconds. Intended to be called once at startup before
 	/// spawning background tasks so that initial events are not lost.
@@ -43,14 +43,14 @@ impl Sink {
 				.await
 			{
 				Ok(r) if r.status().is_success() => {
-					info!("Swarmboty OK");
+					info!("Swarmbot OK");
 					break;
 				}
 				Ok(r) => {
-					error!(status = %r.status(), "Swarmboty health check returned non-success");
+					error!(status = %r.status(), "Swarmbot health check returned non-success");
 				}
 				Err(e) => {
-					error!(error = %e, "Swarmboty health check failed");
+					error!(error = %e, "Swarmbot health check failed");
 				}
 			}
 		}
@@ -92,7 +92,7 @@ impl Sink {
 			.body(payload)
 			.send()
 			.await
-			.context("POST event to Swarmboty")?;
+			.context("POST event to Swarmbot")?;
 		if !resp.status().is_success() {
 			let status = resp.status();
 			let body = resp.text().await.unwrap_or_default();
@@ -101,9 +101,9 @@ impl Sink {
 				endpoint = %self.cfg.event_endpoint,
 				body = %body,
 				event_type = %ty,
-				"Swarmboty rejected event"
+				"Swarmbot rejected event"
 			);
-			anyhow::bail!("Swarmboty returned {status}");
+			anyhow::bail!("Swarmbot returned {status}");
 		}
 		Ok(())
 	}

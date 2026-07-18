@@ -1,8 +1,8 @@
-//! JSON payloads sent to Swarmboty.
+//! JSON payloads sent to Swarmbot.
 
 use serde::Serialize;
 
-/// Full status snapshot posted to Swarmboty on every stats tick.
+/// Full status snapshot posted to Swarmbot on every stats tick.
 #[derive(Debug, Serialize)]
 pub struct Status {
 	/// Docker Swarm node ID (empty string when not in Swarm mode) or the
@@ -287,7 +287,7 @@ mod tests {
 				free: 50,
 			},
 			tasks: vec![ContainerStatus {
-				name: "/swarmboty_app.1.abc".into(),
+				name: "/swarmbot_app.1.abc".into(),
 				id: "abc123fullid".into(),
 				namespace: None,
 				pod: None,
