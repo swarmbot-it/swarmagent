@@ -60,6 +60,10 @@ pub struct Config {
 	pub kubelet_insecure_tls: bool,
 	/// Kubelet access mode. `AGENT_KUBELET_MODE` env (`direct`/`proxy`), default `direct`.
 	pub kubelet_mode: KubeletMode,
+	/// Shared secret sent as `X-Agent-Token` on every request to Swarmboty.
+	/// `SWARMAGENT_SHARED_SECRET` env. Opt-in: unset means no token is sent,
+	/// matching the previous behavior.
+	pub shared_secret: Option<String>,
 }
 
 impl Config {
@@ -81,6 +85,7 @@ impl Config {
 			node_ip: non_empty(env::var("NODE_IP").ok()),
 			kubelet_insecure_tls: parse_bool_env("AGENT_KUBELET_INSECURE_TLS", true),
 			kubelet_mode: parse_kubelet_mode(&get_string("AGENT_KUBELET_MODE", "direct")),
+			shared_secret: non_empty(env::var("SWARMAGENT_SHARED_SECRET").ok()),
 		}
 	}
 }
