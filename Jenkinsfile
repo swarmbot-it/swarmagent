@@ -2,7 +2,6 @@ pipeline {
     agent { label 'docker' }
 
     options {
-        timestamps()
         disableConcurrentBuilds()
         buildDiscarder(logRotator(numToKeepStr: '30'))
     }
