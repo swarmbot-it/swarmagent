@@ -1,11 +1,11 @@
-# swarmagent — per-node monitoring agent for sw4rm.bot on Kubernetes / k3s.
+# swarmagent — per-node monitoring agent for swarmbot on Kubernetes / k3s.
 #
 # The agent is push-only: it exposes no ports and only POSTs stats/events to
-# the sw4rm.bot API (SW4RM_BOT_URL). One pod runs on every node (DaemonSet).
+# the swarmbot API (SWARMBOT_URL). One pod runs on every node (DaemonSet).
 #
 # Apply with:
 #   kubectl apply -f deploy/k8s/swarmagent.yaml
-# and set SW4RM_BOT_URL below to the reachable sw4rm.bot API base URL.
+# and set SWARMBOT_URL below to the reachable swarmbot API base URL.
 ---
 apiVersion: v1
 kind: Namespace
@@ -86,11 +86,11 @@ spec:
         runAsGroup: 65534
       containers:
         - name: swarmagent
-          image: ghcr.io/dcniko/swarmagent:latest
+          image: ghcr.io/swarmbot-it/swarmagent:latest
           env:
-            # sw4rm.bot API base URL — adjust to your deployment
+            # swarmbot API base URL — adjust to your deployment
             # (in-cluster Service, Ingress, or external URL).
-            - name: SW4RM_BOT_URL
+            - name: SWARMBOT_URL
               value: "http://swarmbot-app.swarmbot.svc.cluster.local:8080"
             # Explicit mode is optional (auto-detection finds the
             # ServiceAccount), but makes the intent obvious.

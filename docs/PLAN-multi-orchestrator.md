@@ -65,10 +65,10 @@ Fakty istotne dla zakresu zmian (zweryfikowane w kodzie swarmbota):
 - swarmbot parsuje payload `stats` w `apps/api/src/metrics/stats-ingest.ts` — parser jest
   **tolerancyjny na dodatkowe pola** i identyfikuje węzeł po `id` **lub** `hostname`.
   Dodanie nowych pól nie psuje niczego.
-- Zmienna `SW4RM_BOT_AGENT_URL` w swarmbocie jest zdefiniowana w configu, ale **nigdzie
+- Zmienna `SWARMBOT_AGENT_URL` w swarmbocie jest zdefiniowana w configu, ale **nigdzie
   nieużywana** — swarmbot nie woła dziś HTTP API agenta. Usunięcie serwera axum
   nie łamie więc żadnej istniejącej funkcji swarmbota.
-- Rozjazd nazw env: pliki compose swarmbota ustawiają `SW4RM_BOT_URL`, a agent czyta
+- Rozjazd nazw env: pliki compose swarmbota ustawiają `SWARMBOT_URL`, a agent czyta
   `SWARMBOT_URL` (działa tylko dzięki zbieżnemu defaultowi `http://app:8080`).
   Do ujednolicenia w Fazie 0.
 
@@ -166,7 +166,7 @@ Fazy 0–3 są kompletne i wdrażalne bez tego kanału — dlatego jest wydzielo
 
 1. Usunąć `src/web.rs`, serwer axum z `main.rs`, deps `axum`/`bytes`, `EXPOSE 8080`
    z Dockerfile, sekcję „HTTP API” z README; usunąć `logs_max_bytes` z `Config`.
-2. Ujednolicić env bazowego URL-a: czytać `SW4RM_BOT_URL` **oraz** (dla zgodności)
+2. Ujednolicić env bazowego URL-a: czytać `SWARMBOT_URL` **oraz** (dla zgodności)
    `SWARMBOT_URL`; zaktualizować README i compose w swarmbocie.
 3. `main.rs`: po spawnach `ctrl_c().await` zamiast `axum::serve`.
 4. Testy: `cargo test` — usunąć/przenieść testy `web.rs` (parse_since itd. znikają).
@@ -255,7 +255,7 @@ przechodzące `parseStatsBatch` swarmbota (węzły widoczne w UI z metrykami CPU
 ### Faza 3 — pakowanie, manifesty, CI, dokumentacja
 
 1. `deploy/k8s/swarmagent.yaml`: Namespace + ServiceAccount + ClusterRole +
-   ClusterRoleBinding + DaemonSet (env: `NODE_NAME` downward, `SW4RM_BOT_URL`;
+   ClusterRoleBinding + DaemonSet (env: `NODE_NAME` downward, `SWARMBOT_URL`;
    `tolerations` dla control-plane; requests/limits; `runAsNonRoot` — w k8s nie
    potrzebujemy roota, bo nie czytamy socketu Dockera).
 2. `Dockerfile` bez zmian poza usuniętym `EXPOSE` (Faza 0); obraz pozostaje `scratch`.
@@ -278,7 +278,7 @@ podjąć po wdrożeniu k3s (na k8s logi idą przez apiserver po stronie swarmbot
 | Zmienna | Default | Opis |
 |---|---|---|
 | `AGENT_MODE` | `auto` | `auto` / `docker` / `kubernetes` |
-| `SW4RM_BOT_URL` (alias: `SWARMBOT_URL`) | `http://app:8080` | baza URL swarmbota; z niej `/events` i `/version` |
+| `SWARMBOT_URL` | `http://app:8080` | baza URL swarmbota; z niej `/events` i `/version` |
 | `EVENT_ENDPOINT`, `HEALTH_CHECK_ENDPOINT` | pochodne bazy | jak dotychczas (nadpisania) |
 | `STATS_FREQUENCY` | `30` | jak dotychczas |
 | `STATS_MAX_CONCURRENCY` | `32` | tylko tryb Docker |
@@ -307,7 +307,7 @@ Usunięte: `LOGS_MAX_BYTES` (wraz z HTTP API).
 | Rozmiar binarki po dodaniu `kube` | zmierzyć; ewentualny feature-gate `k8s` |
 | Brak per-container network/blkio w Summary API | pola = 0; swarmbot ich nie konsumuje; ewentualnie CRI stats w przyszłości |
 | Format `id` kontenera w k8s (`ns/pod/container`) a odchudzone ID Dockera | swarmbot traktuje `id` jako nieprzezroczysty klucz — OK; ustalić w prompt dla swarmbota |
-| Utrata `/logs` i `/inspect` agenta | swarmbot nie używa ich dziś (`SW4RM_BOT_AGENT_URL` nieużywane); k8s: apiserver; Swarm: Faza 4 |
+| Utrata `/logs` i `/inspect` agenta | swarmbot nie używa ich dziś (`SWARMBOT_AGENT_URL` nieużywane); k8s: apiserver; Swarm: Faza 4 |
 | Wersjonowanie kontraktu | pole `agentVersion` już jest; `orchestrator` pozwala swarmbotowi rozgałęzić logikę |
 
 ## 8. Definicja ukończenia całości
